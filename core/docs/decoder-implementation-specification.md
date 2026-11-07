@@ -209,3 +209,22 @@ mandatory metric metadata and polling-only snapshot construction. Each mission
 owns its DSP equations, primitive precision, update order, recovery cadence,
 lifecycle cleanup, frame validation and tap buffering/failure semantics.
 See [shared infrastructure](../../decoder_base/README.md).
+
+## If a GRC is available: suggested AI prompt (replace TBD with specific mission name)
+
+Build a full DSP-identical JSatDecode decoder, jradio-based, starting from the validated GRC decoders (normative reference) located inside ‘decoder_TBD/grc’. The generated source code, documentation and example configuration files must be placed in the folder ‘decoder_TBD’. Inspect existing decoders ‘jsatdecode/decoder_hinode’ and ‘jsatdecode/decoder_elektrol_ggak’ for examples about directory structure.
+
+In terms of DSP porting:
+- As per decoder implementation specification, a DC blocker must be introduced as the first input block. Activation must be configurable.
+- The decoder shall specify a sample rate for the DSP chain. Sample rate shall be configurable. If sample rate decimation/resampling must be supported, these operations shall be a function of the configured sample rate. When operating with wav files or Pluto SDR, it is the responsibility of the user to make sure that the output sample rate of the source is equal to the configured sample rate of the DSP decoder.
+- No assumptions about the specific DSP decoding chain shall be taken with respect to specific recorded files, or with respect to other DSP decoder implementations. Specifically, design decisions about other decoder’s implementations in terms of DSP processing shall not pollute the implementation of this decoder. The reference GRC is authoritative.
+- In case of timing, transition-like behaviours are implemented in the GRC decoder (e.g. timed acquisition phases), remove them from the migrated DSP decoder and only implement steady-state parameters.
+- Maximise re-use of jradio available functions, instead of custom code.
+
+To build the JSatDecode decoder, inspect ‘jsatdecode/core/docs/decoder-implementation-specification.md’ as normative reference for JSatDecode decoder implementation, ‘jsatdecode/core/specs/JSatDecode_Specification.md’ as specification for JSatDecode core framework, and the JSatDecode source code in ‘jsatdecode/core/src’. In case of ambiguities or conflicts, report these and always assume the source code as the ultimate authoritative source of information.
+
+Once the decoder is implemented, validate its performance against the file \<path to WAV/CF32/CS16 file\>. The decoder shall extract at least XXX frames. When no throttling is used, the decoding performance shall be > 2x realtime.
+
+In terms of configuration, one configuration based on wav file reprocessing with synthetic distribution and one configuration based on Pluto SDR source with ZMQ distribution shall be prepared and made available inside the examples folder. Configuration for the satellite is center frequency TBD, TBD samples/s (i.e. TBD Msps/MHz with decimation factor TBD in Pluto Plus FPGA). Offset tuning shall be supported by the decoder, as per capability of the Pluto SDR source. Note that JSatDecode has already support for signal translation in frequency by configuration, using a Rotator. You don’t need to implement it for the decoder.
+
+Decoder implementation and characteristics shall be documented inside the docs folder of the decoder, file name receiver.md. Test results shall be recorded inside the docs folder of the decoder, fine name qualification.md. Check the information present in other decoder implementations to infer the structure of the documents. Do not pollute their contents with DSP- and test-specific information from other decoders.
