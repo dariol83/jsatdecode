@@ -5,6 +5,23 @@
     <artifactId>decoder-hinode</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <name>JSatDecode Hinode TLM S-band TM decoder</name>
+    <url>https://www.github.com/dariol83/jsatdecode</url>
+
+    <developers>
+        <developer>
+            <name>Dario Lucia</name>
+            <email>dario.lucia@gmail.com</email>
+            <url>https://www.dariolucia.eu</url>
+        </developer>
+    </developers>
+
+    <licenses>
+        <license>
+            <name>GNU GENERAL PUBLIC LICENSE, Version 2.0, with Classpath Exception</name>
+            <url>https://github.com/dariol83/jsatdecode/blob/master/LICENSE</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

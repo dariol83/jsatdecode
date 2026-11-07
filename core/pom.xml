@@ -7,6 +7,23 @@
     <version>0.1.0-SNAPSHOT</version>
     <name>JSatDecode Core</name>
     <description>Satellite telemetry framework with isolated SatDecode ZMQ distribution</description>
+    <url>https://www.github.com/dariol83/jsatdecode</url>
+
+    <developers>
+        <developer>
+            <name>Dario Lucia</name>
+            <email>dario.lucia@gmail.com</email>
+            <url>https://www.dariolucia.eu</url>
+        </developer>
+    </developers>
+
+    <licenses>
+        <license>
+            <name>GNU GENERAL PUBLIC LICENSE, Version 2.0, with Classpath Exception</name>
+            <url>https://github.com/dariol83/jsatdecode/blob/master/LICENSE</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <maven.compiler.source>21</maven.compiler.source>

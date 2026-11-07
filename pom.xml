@@ -7,6 +7,35 @@
     <packaging>pom</packaging>
     <name>JSatDecode reactor</name>
     <description>Builds the independent core, shared decoder library, mission modules and standalone distribution</description>
+    <url>https://www.github.com/dariol83/jsatdecode</url>
+
+    <developers>
+        <developer>
+            <name>Dario Lucia</name>
+            <email>dario.lucia@gmail.com</email>
+            <url>https://www.dariolucia.eu</url>
+        </developer>
+    </developers>
+
+    <licenses>
+        <license>
+            <name>GNU GENERAL PUBLIC LICENSE, Version 2.0, with Classpath Exception</name>
+            <url>https://github.com/dariol83/jsatdecode/blob/master/LICENSE</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <scm>
+        <url>https://github.com/dariol83/jsatdecode.git</url>
+        <connection>scm:git:git@github.com:dariol83/jsatdecode.git</connection>
+        <developerConnection>scm:git:git@github.com:dariol83/jsatdecode.git</developerConnection>
+    </scm>
+
+    <properties>
+        <maven.gpg.version>1.6</maven.gpg.version>
+        <maven.sonatype.version>0.4.0</maven.sonatype.version>
+    </properties>
+
     <modules>
         <module>core</module>
         <module>decoder_base</module>
@@ -14,4 +43,38 @@
         <module>decoder_hinode</module>
         <module>distribution</module>
     </modules>
+
+    <profiles>
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>${maven.gpg.version}</version>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <version>${maven.sonatype.version}</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <publishingServerId>central</publishingServerId>
+                            <tokenAuth>true</tokenAuth>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
