@@ -75,3 +75,13 @@ Available example decoders for satellite missions:
 
 - [Elektro-L GGAK](decoder_elektrol_ggak/README.md)
 - [Hinode](decoder_hinode/README.md)
+
+---
+
+## License
+
+This project is licensed under the **GNU General Public License version 2 with the Classpath Exception**.
+
+See the [LICENSE](LICENSE) file for the full license text.
+
+The Classpath Exception allows linking this library with independent modules to produce an executable, regardless of the license terms of those independent modules.
