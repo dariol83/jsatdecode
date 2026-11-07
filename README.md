@@ -26,6 +26,10 @@ mvn verify
 mvn -pl core verify
 ```
 
+The four Java artifacts are explicit Java Platform Module System (JPMS) modules.
+See [Java modules](core/docs/java-modules.md) for their names, exported APIs,
+service-provider registration and module-path commands.
+
 ## Examples
 
 Build and extract the [stand-alone distribution](distribution/README.md), which
@@ -66,6 +70,7 @@ bin/jsatinspector.bat --help
 - [Specification](core/specs/JSatDecode_Specification.md) - Current framework behavior and contracts
 - [Architecture](core/docs/architecture.md) - Design decisions and implementation details
 - [Implementation Guide](core/docs/implementation-guide.md) - Module structure, build and development guidance
+- [Java modules](core/docs/java-modules.md) - JPMS dependencies, services and module-path usage
 - [Decoder Implementation Guide](core/docs/decoder-implementation-specification.md) - Specification for decoder implementation
 - [ZMQ distribution interface](core/docs/zmq-distribution-interface.md) - Specification of ZMQ-based distribution protocol
 

@@ -13,10 +13,9 @@
         <skipTests>false</skipTests>
     </properties>
     <dependencies>
-        <!-- JPMS needs the thin core classifier for the module-path distribution. -->
         <dependency>
             <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-core</artifactId>
-            <version>${project.version}</version><classifier>modular</classifier>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>decoder-base</artifactId>

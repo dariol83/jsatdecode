@@ -5,6 +5,12 @@ mission decoders. It depends on the core contracts and jradio **1.121**. Core
 does not depend on this module. The library registers no factory, thread,
 transport, UI or standalone receiver.
 
+Its explicit JPMS module is `eu.dariolucia.jsatdecode.decoder.base`. It exports
+the base, configuration, DSP and monitoring helper packages and makes the core
+contracts readable to consumers through `requires transitive`. jradio remains
+an implementation dependency. See [Java modules](../core/docs/java-modules.md)
+for dependency and module-path details.
+
 ## Components and ownership
 
 All packages below start with `eu.dariolucia.jsatdecode.decoder.base`.

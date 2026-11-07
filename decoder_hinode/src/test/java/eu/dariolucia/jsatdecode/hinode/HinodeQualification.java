@@ -6,7 +6,6 @@ import java.time.Duration;
 import java.util.*;
 import eu.dariolucia.jsatdecode.api.config.Configuration;
 import eu.dariolucia.jsatdecode.source.wav.*;
-import eu.dariolucia.jsatdecode.ui.swing.HinodeDesktopSession;
 
 /** Explicit, external-data acceptance harness. Never runs as a synthetic unit test. */
 public final class HinodeQualification {

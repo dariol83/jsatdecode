@@ -28,13 +28,14 @@ Count-only test runs own separate sources and preallocated primitive read
 diagnostics. Their functional counting callback performs no Swing or filesystem
 work. Management stops and joins each run before logging its diagnostics.
 
-Core builds the application JAR and a thin JAR with classifier `modular` for the
-[standalone distribution](../../distribution/README.md). The distribution
-includes core, the shared library, both mission JARs and their runtime
-dependencies. Launchers use `--module-path` and core's automatic module name
-`eu.dariolucia.jsatdecode.core`. Service-provider resources support factory
-discovery. Individual modules can be built with their dependencies through the
-root reactor.
+Core, the shared library and both mission JARs contain explicit JPMS descriptors.
+The [standalone distribution](../../distribution/README.md) includes these same
+JARs and their runtime dependencies. Launchers use `--module-path` and the core
+module `eu.dariolucia.jsatdecode.core`. Descriptor `uses` and `provides`
+declarations support modular factory discovery; `META-INF/services` resources
+also support classpath applications. Individual modules can be built with their
+dependencies through the root reactor. See [Java modules](java-modules.md) for
+module boundaries and service registration.
 
 All packages below start with `eu.dariolucia.jsatdecode`.
 

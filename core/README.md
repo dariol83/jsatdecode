@@ -3,7 +3,8 @@
 The Java 21 core module provides sample sources, decoder and distributor APIs,
 runtime management, monitoring, spectrum utilities, the optional Swing decoder
 window and [JSatInspector](docs/jsatinspector.md). Java packages use
-`eu.dariolucia.jsatdecode`.
+`eu.dariolucia.jsatdecode`. Its JPMS name is
+`eu.dariolucia.jsatdecode.core`; the main JAR contains `module-info.class`.
 
 ## Sources, decoders and outputs
 
@@ -62,9 +63,11 @@ java -cp 'core/target/classes;core/target/test-dependencies/*' eu.dariolucia.jsa
 java -cp 'core/target/classes;core/target/test-dependencies/*' eu.dariolucia.jsatdecode.MainLauncher --inspector
 ```
 
-Use `:` instead of `;` as the classpath separator on Linux/macOS. The core JAR
-declares a main entry point and also has a `modular` classifier; its dependencies
-are separate JARs.
+Use `:` instead of `;` as the classpath separator on Linux/macOS. The same core
+JAR supports the module path and classpath and declares `MainLauncher` as its
+main entry point; its dependencies are separate JARs. See
+[Java modules](docs/java-modules.md) for module-path commands, exported packages
+and service declarations.
 
 Maven's Exec plugin runs self-contained tests for APIs, observability, FFTs, file
 sources, IIOD acquisition/recording, runtime, verbose logging, the ZMQ client,
@@ -78,6 +81,7 @@ do not use JUnit. Desktop and external-recording checks are opt-in; see the
 - [Framework specification](specs/JSatDecode_Specification.md)
 - [Architecture and API contracts](docs/architecture.md)
 - [Implementation guide](docs/implementation-guide.md)
+- [Java modules and service providers](docs/java-modules.md)
 - [Decoder implementation specification](docs/decoder-implementation-specification.md)
 - [Runtime, CLI and output configuration](docs/runtime.md)
 - [File-source formats and lifecycle](docs/file-sources.md)

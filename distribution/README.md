@@ -2,8 +2,9 @@
 
 This package contains JSatDecoder, JSatInspector, `core`, `decoder_base`, the
 Elektro-L GGAK and Hinode decoders and every runtime dependency. No Maven installation is needed
-to run it. Install Java 21 or later, including desktop support for JSatInspector
-or decoder monitoring windows. The scripts use `JAVA_HOME` when set, otherwise
+to run it. Install Java 21 or later with the `java.desktop` and `java.xml`
+modules; these are required by the modular runtime even for headless decoding.
+The scripts use `JAVA_HOME` when set, otherwise
 the `java` command on `PATH`. A Java runtime is not bundled.
 
 ## Build and extract
@@ -95,11 +96,12 @@ Start with `docs/README.md` for the documentation index,
 The mission modules are Elektro-L GGAK and Hinode. The launchers use
 `java --module-path ... --module ...`; application and dependency JARs are
 loaded through the Java module system without an application classpath.
-The application, shared library and mission JARs are automatic modules. Core's
-manifest supplies the stable `Automatic-Module-Name`
-`eu.dariolucia.jsatdecode.core`; dependencies retain their own module metadata.
-The launchers resolve all modules on the module path so every included decoder
-is available for factory discovery.
-The core module also builds a JAR with a main entry point for individual core
-development. Include runtime dependencies on the classpath for decoding; the
-distribution launchers supply them automatically.
+The application, shared library and mission JARs are explicit modules containing
+`module-info.class`. The core module is `eu.dariolucia.jsatdecode.core`; its
+service declarations make matching decoder provider modules available through
+standard service binding, without `--add-modules ALL-MODULE-PATH`. Third-party
+dependencies retain their own metadata, including automatic modules. The
+ordinary core artifact is used directly; no separate modular classifier is
+needed. See [Java modules](../core/docs/java-modules.md), packaged as
+`docs/core/docs/java-modules.md`, for all module names, exported APIs, dependency
+requirements and plugin registration.

@@ -8,15 +8,6 @@
     <dependencySets>
         <dependencySet>
             <outputDirectory>lib</outputDirectory><scope>runtime</scope><useProjectArtifact>false</useProjectArtifact>
-            <!-- Exclude both core variants here, then select only the thin one below. -->
-            <excludes><exclude>eu.dariolucia.jsatdecode:jsatdecode-core</exclude></excludes>
-            <useStrictFiltering>true</useStrictFiltering>
-        </dependencySet>
-        <dependencySet>
-            <outputDirectory>lib</outputDirectory><scope>runtime</scope><useProjectArtifact>false</useProjectArtifact>
-            <useTransitiveDependencies>false</useTransitiveDependencies>
-            <includes><include>eu.dariolucia.jsatdecode:jsatdecode-core:jar:modular</include></includes>
-            <useStrictFiltering>true</useStrictFiltering>
         </dependencySet>
     </dependencySets>
     <fileSets>

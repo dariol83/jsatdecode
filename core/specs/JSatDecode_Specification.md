@@ -22,12 +22,13 @@ framework API types. Core uses JeroMQ internally for ZMQ transport. The shared
 decoder library depends on core and jradio 1.121; mission modules depend on the
 shared library. Core has no dependency on mission modules or jradio.
 
-Core packages the `MainLauncher` entry point and a thin JAR with the `modular`
-classifier. Its stable automatic module name is
-`eu.dariolucia.jsatdecode.core`. The standalone distribution includes core,
-shared decoder support, the two mission modules and their runtime dependencies.
-The distribution launchers use the Java module path and discover decoder factories
-through their service registrations. See the
+The four Java JARs contain explicit JPMS descriptors. Core packages the
+`MainLauncher` entry point in `eu.dariolucia.jsatdecode.core`. The standalone
+distribution includes the same core JAR, shared decoder support, the two mission
+modules and their runtime dependencies. The distribution launchers use the Java
+module path and discover factories through descriptor `uses`/`provides`
+declarations. Service-provider resources also retain classpath compatibility.
+See [Java modules](../docs/java-modules.md) and the
 [distribution guide](../../distribution/README.md).
 
 ## Functional path and observation

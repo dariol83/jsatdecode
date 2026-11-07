@@ -7,6 +7,8 @@ import java.util.Objects;
  * Immutable binary metadata, safely shareable between producers and observers.
  * Construction and array access copy bytes; equality/hash code compare contents.
  * Use this value instead of a mutable byte array in annotations or snapshots.
+ *
+ * @param bytes binary content, copied during construction and access
  */
 public record BinaryValue(byte[] bytes) {
     /**

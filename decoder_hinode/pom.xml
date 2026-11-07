@@ -25,17 +25,18 @@
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <skipTests>false</skipTests>
     </properties>
     <dependencies>
         <dependency>
             <groupId>eu.dariolucia.jsatdecode</groupId>
             <artifactId>decoder-base</artifactId>
-            <version>0.1.0-SNAPSHOT</version>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>eu.dariolucia.jsatdecode</groupId>
             <artifactId>jsatdecode-core</artifactId>
-            <version>0.1.0-SNAPSHOT</version>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>ru.r2cloud</groupId>
@@ -69,6 +70,11 @@
                 <version>3.14.1</version>
             </plugin>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.2</version>
+            </plugin>
+            <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.5.1</version>
@@ -82,6 +88,7 @@
                         <configuration>
                             <mainClass>eu.dariolucia.jsatdecode.hinode.HinodeTest</mainClass>
                             <classpathScope>test</classpathScope>
+                            <skip>${skipTests}</skip>
                         </configuration>
                     </execution>
                 </executions>

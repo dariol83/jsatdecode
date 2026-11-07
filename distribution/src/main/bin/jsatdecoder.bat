@@ -6,5 +6,5 @@ if defined JAVA_HOME (
 ) else (
     set "JAVA_COMMAND=java.exe"
 )
-"%JAVA_COMMAND%" --module-path "%APP_HOME%\lib" --add-modules ALL-MODULE-PATH --module eu.dariolucia.jsatdecode.core/eu.dariolucia.jsatdecode.cli.Main %*
+"%JAVA_COMMAND%" --module-path "%APP_HOME%\lib" --module eu.dariolucia.jsatdecode.core/eu.dariolucia.jsatdecode.cli.Main %*
 exit /b %ERRORLEVEL%

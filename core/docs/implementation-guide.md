@@ -21,6 +21,10 @@ dependency order:
 detectors and accounting remain in the decoder modules. Core has no dependency
 on these modules. Factories are discovered through `ServiceLoader`.
 
+The four Java modules each contain a `module-info.java`; `distribution` is a
+Maven packaging module. JPMS names, exported packages, service declarations and
+module-path development commands are documented in [Java modules](java-modules.md).
+
 Run from the repository root:
 
 ~~~text

@@ -5,6 +5,13 @@ through the Decoder/DecoderFactory API and generic monitoring, taps and frame
 contracts. The module uses the public `DecoderStatusKeys` vocabulary and
 implements the [mandatory decoder contract](../core/docs/decoder-implementation-specification.md).
 
+The explicit JPMS module `eu.dariolucia.jsatdecode.decoder.hinode` exports
+`eu.dariolucia.jsatdecode.hinode` for direct construction and provides its
+`HinodeDecoderFactory` through the framework's `DecoderFactory` service. The
+same JAR retains classpath service registration. See
+[Java modules](../core/docs/java-modules.md) for modular launches and plugin
+requirements.
+
 The receiver accepts complex float I/Q at 500000 samples/s and recovers 892-byte
 RS-corrected AOS transfer frames from residual-carrier PM/BPSK telemetry.
 The initial jradio long-form DC blocker has averaging length 16384 and is enabled
@@ -21,12 +28,13 @@ Build from the repository root using JDK 21 or later:
 
 ```powershell
 mvn -pl decoder_hinode -am verify
-java -cp 'decoder_hinode/target/classes;decoder_hinode/target/lib/*' eu.dariolucia.jsatdecode.cli.Main --list-decoders
+java --module-path 'decoder_hinode/target/classes;decoder_hinode/target/lib' --module eu.dariolucia.jsatdecode.core/eu.dariolucia.jsatdecode.MainLauncher --list-decoders
 ```
 
 The reactor builds core and `decoder-base` first and copies runtime dependencies
-into `target/lib`. Use the framework CLI with this module and its dependencies
-on the classpath. `examples/hinode-wav.properties` supplies a starting
+into `target/lib`. Use `:` instead of `;` as the path separator on Linux/macOS.
+The framework discovers the decoder through its JPMS service declaration;
+classpath launches remain supported. `examples/hinode-wav.properties` supplies a starting
 configuration; set `source.file` to the recording path. File reading and optional
 ZMQ distribution belong to the framework. The decoder never opens an output file.
 The Java runtime reads properties configuration files.

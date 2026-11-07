@@ -6,5 +6,5 @@ if [ -n "$JAVA_HOME" ]; then
 else
     JAVA_COMMAND=java
 fi
-exec "$JAVA_COMMAND" --module-path "$APP_HOME/lib" --add-modules ALL-MODULE-PATH \
+exec "$JAVA_COMMAND" --module-path "$APP_HOME/lib" \
     --module eu.dariolucia.jsatdecode.core/eu.dariolucia.jsatdecode.inspector.JSatInspector "$@"

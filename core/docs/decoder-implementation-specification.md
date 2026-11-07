@@ -14,6 +14,12 @@ contract to test observer isolation.
   `<decoder name>Decoder` and `<decoder name>DecoderFactory`; register the
   factory with ServiceLoader. Keep mission DSP, settings, GRC/reference artifacts,
   tests and documentation in the decoder's module.
+- Supply an explicit `module-info.java` requiring the framework and each directly
+  used library. Register the factory with `provides DecoderFactory with ...` and
+  retain the corresponding `META-INF/services` entry for classpath consumers.
+  Export packages intended for direct programmatic use and keep DSP internals
+  encapsulated. See [Java modules](java-modules.md#service-providers) for the
+  complete descriptor example and discovery rules.
 - The decoder module shall reside in an independent top-level Maven module
   `decoder_<decoder name>`; Its numerical/DSP details remain local. DSP entry point
   shall be named `<decoder name>Dsp`; settings entry point (record class) shall be named

@@ -34,9 +34,27 @@ public final class SwingMonitoringUi {
      * @throws Exception if desktop startup fails
      */
     public static AutoCloseable open(Configuration configuration, JSatDecodeRuntime runtime) throws Exception {
+        return open(configuration, runtime, runtime::taps, "JSatDecode monitoring");
+    }
+
+    /**
+     * Opens an independent observer for a decoder or another monitoring provider.
+     * Closing the session stops observation without changing the provider's lifecycle.
+     *
+     * @param configuration global UI settings
+     * @param provider      monitoring provider observed by this session
+     * @param taps          current tap provider, obtained on each observation
+     * @param title         window title
+     * @return idempotent session, or inert close action when headless
+     * @throws Exception if desktop startup fails
+     */
+    public static AutoCloseable open(Configuration configuration, Monitorable provider,
+                                     Supplier<TapProvider> taps, String title) throws Exception {
         if (unavailable()) return () -> {
         };
-        return new Session(runtime, runtime::taps, UiSettings.read(configuration.getSection("ui")), SpectrumSettings.read(configuration.getSection("ui")), ConstellationSettings.read(configuration.getSection("ui")), "JSatDecode monitoring");
+        Configuration ui = configuration.getSection("ui");
+        return new Session(provider, taps, UiSettings.read(ui), SpectrumSettings.read(ui),
+                ConstellationSettings.read(ui), title);
     }
 
     /**
