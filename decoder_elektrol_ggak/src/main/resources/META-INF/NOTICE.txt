@@ -1,0 +1,6 @@
+Elektro-L GGAK decoder for JSatDecode.
+
+DSP parameters, stage order and checksum validation follow grc/decoder_elektrol_ggak.grc.
+This module uses jradio 1.121 (Apache License 2.0); the license is
+included at META-INF/licenses/jradio-LICENSE.txt. Native streaming
+adapters are identified in docs/receiver.md.

@@ -1,0 +1,7 @@
+Hinode timing recovery adapts the ClockRecoveryMMComplex equations from
+jradio 1.121 (https://github.com/dernasherbrezon/jradio), licensed under the
+Apache License, Version 2.0. The MMSE interpolator and CCSDS RS implementation
+are used from the jradio dependency, together with two independent long-form
+DcBlocker instances for optional initial I/Q DC removal. See licenses/jradio-LICENSE.txt.
+Receiver parameters and RRC coefficients originate from this repository's
+examples/decoders/hinode_s_tlm reference implementation.

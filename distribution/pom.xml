@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>eu.dariolucia.jsatdecode</groupId>
+    <artifactId>jsatdecode-distribution</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>JSatDecode standalone distribution</name>
+    <properties>
+        <maven.compiler.release>21</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <skipTests>false</skipTests>
+    </properties>
+    <dependencies>
+        <!-- JPMS needs the thin core classifier for the module-path distribution. -->
+        <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-core</artifactId>
+            <version>${project.version}</version><classifier>modular</classifier>
+        </dependency>
+        <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>decoder-base</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>decoder-elektrol-ggak</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>decoder-hinode</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+    <build>
+        <finalName>jsatdecode-${project.version}</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId><artifactId>maven-assembly-plugin</artifactId><version>3.7.1</version>
+                <executions>
+                    <execution>
+                        <id>standalone-distribution</id><phase>package</phase><goals><goal>single</goal></goals>
+                        <configuration>
+                            <descriptors><descriptor>src/assembly/distribution.xml</descriptor></descriptors>
+                            <appendAssemblyId>false</appendAssemblyId>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.14.1</version>
+                <executions>
+                    <execution>
+                        <id>compile-distribution-checks</id><phase>pre-integration-test</phase><goals><goal>testCompile</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId><artifactId>exec-maven-plugin</artifactId><version>3.5.1</version>
+                <executions>
+                    <execution>
+                        <id>distribution-checks</id><phase>verify</phase><goals><goal>java</goal></goals>
+                        <configuration>
+                            <mainClass>eu.dariolucia.jsatdecode.distribution.DistributionTest</mainClass>
+                            <classpathScope>test</classpathScope><skip>${skipTests}</skip>
+                            <arguments><argument>${project.build.directory}/${project.build.finalName}.zip</argument></arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

@@ -1,0 +1,2 @@
+eu.dariolucia.jsatdecode.core.distribution.SyntheticMonitoringDistributorFactory
+eu.dariolucia.jsatdecode.distribution.zmq.ZmqMonitoringDistributorFactory

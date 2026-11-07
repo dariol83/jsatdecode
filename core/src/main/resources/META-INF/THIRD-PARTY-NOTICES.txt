@@ -1,0 +1,15 @@
+JSatDecode bundles unmodified implementation dependencies in its executable JAR:
+
+org.zeromq:jeromq:0.6.0
+Copyright 2007-2024 JeroMQ contributors. Mozilla Public License 2.0.
+License: META-INF/licenses/JeroMQ-LICENSE.txt
+Source: https://github.com/zeromq/jeromq/tree/v0.6.0
+Source archive: https://repo.maven.apache.org/maven2/org/zeromq/jeromq/0.6.0/jeromq-0.6.0-sources.jar
+
+eu.neilalexander:jnacl:1.0.0 (transitive JeroMQ dependency)
+Copyright (c) 2011, Neil Alexander T. BSD 2-Clause License.
+License notice reproduced from the published NaCl.java source header:
+META-INF/licenses/jnacl-LICENSE.txt
+Source archive: https://repo.maven.apache.org/maven2/eu/neilalexander/jnacl/1.0.0/jnacl-1.0.0-sources.jar
+
+Jackson is used only by compatibility tests and is not bundled.

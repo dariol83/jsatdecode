@@ -1,0 +1,762 @@
+options:
+  parameters:
+    author: OpenAI / generated for Dario Lucia
+    catch_exceptions: 'True'
+    category: Satellite
+    cmake_opt: ''
+    comment: 'Elektro-L 5 GGAK diagnostic receiver v1.4. PM demodulation now follows the current SatDump PMDemodModule
+      architecture: resample to 10 sps, AGC, carrier PLL, PMToBPSK imag-only + -symbolrate shift, complex RRC, order-2
+      Costas, M&M clock recovery.'
+    copyright: ''
+    description: Elektro-L 5 GGAK 1693 MHz, 5 ksym/s PM/BPSK, SatDump-equivalent PM demod, CCSDS ASM 1ACFFC1D, 1792-bit
+      CADU
+    gen_cmake: 'On'
+    gen_linking: dynamic
+    generate_options: qt_gui
+    hier_block_src_path: '.:'
+    id: elektro_l5_ggak
+    max_nouts: '0'
+    output_language: python
+    placement: (0,0)
+    qt_qss_theme: ''
+    realtime_scheduling: ''
+    run: 'True'
+    run_command: '{python} -u {filename}'
+    run_options: run
+    sizing_mode: fixed
+    thread_safe_setters: ''
+    title: Elektro-L 5 GGAK Decoder
+    window_size: (1280,900)
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 8
+    - 8
+    rotation: 0
+    state: enabled
+blocks:
+- name: import_0
+  id: import
+  parameters:
+    alias: ''
+    comment: ''
+    imports: import math
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 16
+    - 72
+    rotation: 0
+    state: enabled
+- name: frequency_hz
+  id: variable
+  parameters:
+    comment: GGAK RF frequency
+    value: '1693000000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 16
+    - 120
+    rotation: 0
+    state: enabled
+- name: frequency_correction_hz
+  id: variable
+  parameters:
+    comment: Static correction for receiver/reference error
+    value: '0'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 168
+    - 120
+    rotation: 0
+    state: enabled
+- name: lo_offset_hz
+  id: variable
+  parameters:
+    comment: Keep signal away from Pluto zero-IF/DC spike
+    value: '-250000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 360
+    - 120
+    rotation: 0
+    state: enabled
+- name: samp_rate
+  id: variable
+  parameters:
+    comment: Pluto hardware sample rate
+    value: '2000000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 512
+    - 120
+    rotation: 0
+    state: enabled
+- name: decimation
+  id: variable
+  parameters:
+    comment: Channel-filter decimation
+    value: '8'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 640
+    - 120
+    rotation: 0
+    state: enabled
+- name: post_rate
+  id: variable
+  parameters:
+    comment: ''
+    value: samp_rate/decimation
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 744
+    - 120
+    rotation: 0
+    state: enabled
+- name: symbol_rate
+  id: variable
+  parameters:
+    comment: GGAK symbol rate
+    value: '5000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 872
+    - 120
+    rotation: 0
+    state: enabled
+- name: timing_decimation
+  id: variable
+  parameters:
+    comment: Resample/decimate before AGC/PLL to SatDump MAX_SPS=10
+    value: '5'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 872
+    - 176
+    rotation: 0
+    state: enabled
+- name: timing_rate
+  id: variable
+  parameters:
+    comment: SatDump-equivalent PM demod sample rate (50 kS/s)
+    value: post_rate/timing_decimation
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 984
+    - 176
+    rotation: 0
+    state: enabled
+- name: sps
+  id: variable
+  parameters:
+    comment: Samples/symbol at Costas/MM input; 10 by default
+    value: timing_rate/symbol_rate
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 984
+    - 120
+    rotation: 0
+    state: enabled
+- name: iio_fmcomms2_source_0
+  id: iio_fmcomms2_source
+  parameters:
+    type: fc32
+    uri: '"ip:192.168.2.1"'
+    frequency: int(frequency_hz + frequency_correction_hz + lo_offset_hz)
+    samplerate: int(samp_rate)
+    buffer_size: '32768'
+    rx1_en: 'True'
+    rx2_en: 'False'
+    quadrature: 'True'
+    rfdc: 'True'
+    bbdc: 'True'
+    gain1: '''manual'''
+    manual_gain1: '40.0'
+    gain2: '''manual'''
+    manual_gain2: '0'
+    rf_port_select: '''A_BALANCED'''
+    len_tag_key: '""'
+    filter_source: '''Auto'''
+    filter: '""'
+    fpass: '0'
+    fstop: '0'
+    bandwidth: '1500000'
+    affinity: ''
+    alias: ''
+    comment: Pluto Plus source; default LO = 1692.750 MHz so GGAK is +250 kHz in baseband.
+    maxoutbuf: '0'
+    minoutbuf: '0'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 24
+    - 288
+    rotation: 0
+    state: enabled
+- name: freq_xlating_fir_filter_xxx_0
+  id: freq_xlating_fir_filter_xxx
+  parameters:
+    affinity: ''
+    alias: ''
+    center_freq: -lo_offset_hz
+    comment: Channelize GGAK from +250 kHz to DC and decimate 2 MS/s -> 250 kS/s. Spectrum widget taps here.
+    decim: decimation
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    samp_delay: '0'
+    samp_rate: samp_rate
+    taps: firdes.low_pass(1.0, samp_rate, 40000, 15000, window.WIN_HAMMING)
+    type: ccc
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 240
+    - 288
+    rotation: 0
+    state: enabled
+- name: qtgui_freq_sink_x_0
+  id: qtgui_freq_sink_x
+  parameters:
+    affinity: ''
+    alias: ''
+    alpha1: '1.0'
+    alpha10: '1.0'
+    alpha2: '1.0'
+    alpha3: '1.0'
+    alpha4: '1.0'
+    alpha5: '1.0'
+    alpha6: '1.0'
+    alpha7: '1.0'
+    alpha8: '1.0'
+    alpha9: '1.0'
+    autoscale: 'True'
+    average: '0.2'
+    axislabels: 'True'
+    bw: post_rate
+    color1: '"blue"'
+    color10: '"dark blue"'
+    color2: '"red"'
+    color3: '"green"'
+    color4: '"black"'
+    color5: '"cyan"'
+    color6: '"magenta"'
+    color7: '"yellow"'
+    color8: '"dark red"'
+    color9: '"dark green"'
+    comment: Spectrum immediately after channel filter/decimation.
+    ctrlpanel: 'False'
+    fc: '0'
+    fftsize: '4096'
+    freqhalf: 'True'
+    grid: 'True'
+    gui_hint: 0,0,1,1
+    label: Relative Gain
+    label1: Filtered GGAK
+    label10: ''
+    label2: ''
+    label3: ''
+    label4: ''
+    label5: ''
+    label6: ''
+    label7: ''
+    label8: ''
+    label9: ''
+    legend: 'True'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    name: Post-filter spectrum (250 kS/s)
+    nconnections: '1'
+    norm_window: 'False'
+    showports: 'True'
+    tr_chan: '0'
+    tr_level: '0.0'
+    tr_mode: qtgui.TRIG_MODE_FREE
+    tr_tag: '""'
+    type: complex
+    units: dB
+    update_time: '0.10'
+    width1: '1'
+    width10: '1'
+    width2: '1'
+    width3: '1'
+    width4: '1'
+    width5: '1'
+    width6: '1'
+    width7: '1'
+    width8: '1'
+    width9: '1'
+    wintype: window.WIN_BLACKMAN_hARRIS
+    ymax: '10'
+    ymin: '-140'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 464
+    - 224
+    rotation: 0
+    state: enabled
+- name: qtgui_const_sink_x_0
+  id: qtgui_const_sink_x
+  parameters:
+    affinity: ''
+    alias: ''
+    alpha1: '0.7'
+    alpha10: '1.0'
+    alpha2: '1.0'
+    alpha3: '1.0'
+    alpha4: '1.0'
+    alpha5: '1.0'
+    alpha6: '1.0'
+    alpha7: '1.0'
+    alpha8: '1.0'
+    alpha9: '1.0'
+    autoscale: 'False'
+    axislabels: 'True'
+    color1: '"blue"'
+    color10: '"dark blue"'
+    color2: '"red"'
+    color3: '"green"'
+    color4: '"black"'
+    color5: '"cyan"'
+    color6: '"magenta"'
+    color7: '"yellow"'
+    color8: '"dark red"'
+    color9: '"dark green"'
+    comment: Direct complex output of Costas + M&M recovery. Correct BPSK should form two compact clusters near
+      +/-I, with small Q spread.
+    grid: 'True'
+    gui_hint: 0,1,1,1
+    label1: Recovered BPSK symbols
+    label10: ''
+    label2: ''
+    label3: ''
+    label4: ''
+    label5: ''
+    label6: ''
+    label7: ''
+    label8: ''
+    label9: ''
+    legend: 'True'
+    marker1: '0'
+    marker10: '-1'
+    marker2: '-1'
+    marker3: '-1'
+    marker4: '-1'
+    marker5: '-1'
+    marker6: '-1'
+    marker7: '-1'
+    marker8: '-1'
+    marker9: '-1'
+    name: Post-Costas / M&M constellation
+    nconnections: '1'
+    size: '2048'
+    style1: '0'
+    style10: '0'
+    style2: '0'
+    style3: '0'
+    style4: '0'
+    style5: '0'
+    style6: '0'
+    style7: '0'
+    style8: '0'
+    style9: '0'
+    tr_chan: '0'
+    tr_level: '0.0'
+    tr_mode: qtgui.TRIG_MODE_FREE
+    tr_slope: qtgui.TRIG_SLOPE_POS
+    tr_tag: '""'
+    type: complex
+    update_time: '0.10'
+    width1: '1'
+    width10: '1'
+    width2: '1'
+    width3: '1'
+    width4: '1'
+    width5: '1'
+    width6: '1'
+    width7: '1'
+    width8: '1'
+    width9: '1'
+    xmax: '2'
+    xmin: '-2'
+    ymax: '2'
+    ymin: '-2'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 1848
+    - 224
+    rotation: 0
+    state: enabled
+- name: fir_filter_xxx_0
+  id: fir_filter_xxx
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: 'SatDump-style pre-demod resampling stage: anti-alias LPF + x5 decimation, 250 kS/s -> 50 kS/s (10
+      samples/symbol).'
+    decim: timing_decimation
+    gain: '1'
+    interp: '1'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    samp_delay: '0'
+    taps: firdes.low_pass(1.0, post_rate, 20000, 4000, window.WIN_HAMMING)
+    type: ccc
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 680
+    - 288
+    rotation: 0
+    state: enabled
+- name: analog_agc_xx_0
+  id: analog_agc_xx
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: 'Equivalent to SatDump BaseDemodModule AGC defaults: rate=1e-2, reference=1, initial gain=1, max gain=65536.'
+    gain: '1.0'
+    max_gain: '65536'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    rate: 1e-2
+    reference: '1.0'
+    type: complex
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 848
+    - 288
+    rotation: 0
+    state: enabled
+- name: analog_pll_carriertracking_cc_0
+  id: analog_pll_carriertracking_cc
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Carrier PLL. Uses Elektro GGAK SatDump pll_bw=0.02 and PMDemod default max offset +/-0.5 rad/sample.
+    max_freq: '0.5'
+    maxoutbuf: '0'
+    min_freq: '-0.5'
+    minoutbuf: '0'
+    w: '0.02'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 1016
+    - 288
+    rotation: 0
+    state: enabled
+- name: epy_block_pm
+  id: epy_block
+  parameters:
+    sample_rate: timing_rate
+    symbol_rate: symbol_rate
+    _source_code: "import numpy as np\nfrom gnuradio import gr\n\nclass blk(gr.sync_block):\n    \"\"\"SatDump PMToBPSK\
+      \ equivalent.\n\n    For each PLL output sample, discard I and keep only j*Q, then rotate\n    continuously\
+      \ by -symbol_rate. This mirrors SatDump's PMToBPSK block.\n    Input/output are complex64.\n    \"\"\"\n \
+      \   def __init__(self, sample_rate=50000, symbol_rate=5000):\n        gr.sync_block.__init__(self, name='PMToBPSK\
+      \ (SatDump equivalent)',\n                              in_sig=[np.complex64], out_sig=[np.complex64])\n \
+      \       self.sample_rate = float(sample_rate)\n        self.symbol_rate = float(symbol_rate)\n        self.phase\
+      \ = 0.0\n        self.phase_inc = -2.0*np.pi*self.symbol_rate/self.sample_rate\n\n    def work(self, input_items,\
+      \ output_items):\n        x = input_items[0]\n        n = len(x)\n        if n == 0:\n            return 0\n\
+      \        idx = np.arange(n, dtype=np.float64)\n        ph = self.phase + self.phase_inc*idx\n        rot =\
+      \ np.exp(1j*ph)\n        y = (1j*x.imag.astype(np.float64))*rot\n        output_items[0][:n] = y.astype(np.complex64)\n\
+      \        self.phase = float((self.phase + self.phase_inc*n + np.pi) % (2.0*np.pi) - np.pi)\n        return\
+      \ n\n"
+    affinity: ''
+    alias: ''
+    comment: 'Exact functional equivalent of current SatDump PMToBPSK: x -> j*imag(x), then NCO shift by -symbol_rate.'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+  states:
+    _io_cache:
+    - PMToBPSK (SatDump equivalent)
+    - blk
+    - - - sample_rate
+        - '50000'
+      - - symbol_rate
+        - '5000'
+    - - - '0'
+        - complex
+        - 1
+    - - - '0'
+        - complex
+        - 1
+    - ''
+    - []
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 1176
+    - 288
+    rotation: 0
+    state: enabled
+- name: fir_filter_xxx_1
+  id: fir_filter_xxx
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: 'Complex RRC matched filter matching SatDump PMDemod defaults: alpha=0.5, exactly 31 taps.'
+    decim: '1'
+    gain: '1'
+    interp: '1'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    samp_delay: '0'
+    taps: firdes.root_raised_cosine(1.0, timing_rate, symbol_rate, 0.5, 31)
+    type: ccc
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 1344
+    - 288
+    rotation: 0
+    state: enabled
+- name: digital_costas_loop_cc_0
+  id: digital_costas_loop_cc
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Order-2 BPSK Costas loop matching SatDump PMDemod default costas_bw=0.005.
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    order: '2'
+    use_snr: 'False'
+    w: '0.005'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 1512
+    - 288
+    rotation: 0
+    state: enabled
+- name: digital_clock_recovery_mm_xx_0
+  id: digital_clock_recovery_mm_xx
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: M&M timing recovery matching SatDump PMDemod defaults. Outputs one complex sample per recovered symbol.
+    gain_mu: '0.01'
+    gain_omega: pow(0.01,2)/4.0
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    mu: '0.5'
+    omega: sps
+    omega_relative_limit: '0.005'
+    type: complex
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 1680
+    - 288
+    rotation: 0
+    state: enabled
+- name: epy_block_0
+  id: epy_block
+  parameters:
+    frame_bits: '1792'
+    search_errors: '2'
+    locked_errors: '4'
+    output_file: '"ggak_frames.bin"'
+    _source_code: "import numpy as np\nimport time\nfrom gnuradio import gr\nimport pmt\n\nASM = 0x1ACFFC1D\nASM_BITS\
+      \ = np.array([(ASM >> (31-i)) & 1 for i in range(32)], dtype=np.uint8)\n\nclass blk(gr.sync_block):\n    \"\
+      \"\"Elektro-L 5 GGAK CCSDS ASM deframer.\n\n    Input: one recovered complex BPSK symbol per item (slice on\
+      \ real part).\n    Output 'frames': 220-byte GGAK frame, with 32-bit ASM removed\n    from the 224-byte /\
+      \ 1792-bit CADU. Both normal and inverted polarity\n    are accepted. Only frames passing the empirical additive\
+      \ checksum are\n    published and recorded; the checksum bytes are retained.\n    \"\"\"\n    def __init__(self,\
+      \ frame_bits=1792, search_errors=2, locked_errors=4, output_file='ggak_frames.bin'):\n        gr.sync_block.__init__(self,\
+      \ name='GGAK ASM deframer', in_sig=[np.complex64], out_sig=None)\n        self.message_port_register_out(pmt.intern('frames'))\n\
+      \        self.frame_bits = int(frame_bits)\n        self.search_errors = int(search_errors)\n        self.locked_errors\
+      \ = int(locked_errors)\n        self._window = []\n        self._collect = None\n        self._invert = False\n\
+      \        self._locked = False\n        self._asm_errors = 0\n        self.frames = 0\n        self.rejected_frames\
+      \ = 0\n        if self.frame_bits != 1792:\n            raise ValueError(\"GGAK checksum requires 1792-bit\
+      \ CADUs (220-byte frames)\")\n        self.output_file = str(output_file)\n        self._fh = open(self.output_file,\
+      \ 'wb') if self.output_file else None\n        if self._fh is not None:\n            print('[GGAK] recording\
+      \ frames to %s' % self.output_file)\n\n    def _publish(self, bits):\n        packed = np.packbits(np.asarray(bits,\
+      \ dtype=np.uint8), bitorder='big').tobytes()\n        tm = packed[4:]\n        # Check canonical frame octets\
+      \ after polarity normalization and ASM removal.\n        expected = (sum(tm[:218]) + 0x0202) & 0xffff\n  \
+      \      received = (tm[218] << 8) | tm[219]\n        if expected != received:\n            self.rejected_frames\
+      \ += 1\n            print('[GGAK] checksum reject: expected=%04X received=%04X, valid=%d rejected=%d' %\n\
+      \                  (expected, received, self.frames, self.rejected_frames))\n            return\n        meta\
+      \ = pmt.make_dict()\n        meta = pmt.dict_add(meta, pmt.intern('checksum_valid'), pmt.PMT_T)\n        meta\
+      \ = pmt.dict_add(meta, pmt.intern('checksum'), pmt.from_long(received))\n        meta = pmt.dict_add(meta,\
+      \ pmt.intern('rx_time_ns'), pmt.from_long(time.time_ns()))\n        meta = pmt.dict_add(meta, pmt.intern('frame_type'),\
+      \ pmt.intern('GGAK'))\n        meta = pmt.dict_add(meta, pmt.intern('asm_errors'), pmt.from_long(self._asm_errors))\n\
+      \        meta = pmt.dict_add(meta, pmt.intern('cadu_length'), pmt.from_long(len(packed)))\n        self.message_port_pub(pmt.intern('frames'),\
+      \ pmt.cons(meta, pmt.init_u8vector(len(tm), list(tm))))\n        if self._fh is not None:\n            self._fh.write(tm)\n\
+      \            self._fh.flush()\n        self.frames += 1\n        print('[GGAK] frame %d: %d bytes GGAK frame,\
+      \ checksum=OK, ASM errors=%d, header=%s, rejected=%d' %\n              (self.frames, len(tm), self._asm_errors,\
+      \ tm[:8].hex(), self.rejected_frames))\n\n    def work(self, input_items, output_items):\n        for sample\
+      \ in input_items[0]:\n            bit = 1 if sample.real >= 0 else 0\n            if self._collect is not\
+      \ None:\n                self._collect.append(bit ^ int(self._invert))\n                if len(self._collect)\
+      \ >= self.frame_bits:\n                    bits = self._collect\n                    self._collect = None\n\
+      \                    self._publish(bits)\n                    self._locked = True\n                continue\n\
+      \            self._window.append(bit)\n            if len(self._window) > 32:\n                self._window.pop(0)\n\
+      \            if len(self._window) == 32:\n                w = np.asarray(self._window, dtype=np.uint8)\n \
+      \               e = int(np.count_nonzero(w != ASM_BITS))\n                ei = int(np.count_nonzero((1-w)\
+      \ != ASM_BITS))\n                threshold = self.locked_errors if self._locked else self.search_errors\n\
+      \                if min(e, ei) <= threshold:\n                    self._invert = ei < e\n                \
+      \    self._asm_errors = min(e, ei)\n                    self._collect = ASM_BITS.tolist()\n              \
+      \      self._window = []\n        return len(input_items[0])\n\n    def stop(self):\n        if self._fh is\
+      \ not None:\n            self._fh.flush()\n            self._fh.close()\n            self._fh = None\n   \
+      \     return True\n"
+    affinity: ''
+    alias: ''
+    comment: "Emits and records only 220-byte GGAK frames passing additive checksum: (sum(frame[:218])+0x0202)&0xffff,\
+      \ big-endian bytes 218\u2013219."
+    maxoutbuf: '0'
+    minoutbuf: '0'
+  states:
+    _io_cache:
+    - GGAK ASM deframer
+    - blk
+    - - - frame_bits
+        - '1792'
+      - - search_errors
+        - '2'
+      - - locked_errors
+        - '4'
+      - - output_file
+        - '"ggak_frames.bin"'
+    - - - '0'
+        - complex
+        - 1
+    - - - frames
+        - message
+        - 1
+    - ''
+    - []
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 1848
+    - 520
+    rotation: 0
+    state: enabled
+- name: blocks_message_debug_0
+  id: blocks_message_debug
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Optional PDU display. The embedded deframer also prints a compact one-line summary per frame.
+    en_uvec: 'False'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 2056
+    - 520
+    rotation: 0
+    state: enabled
+connections:
+- - iio_fmcomms2_source_0
+  - '0'
+  - freq_xlating_fir_filter_xxx_0
+  - '0'
+- - freq_xlating_fir_filter_xxx_0
+  - '0'
+  - qtgui_freq_sink_x_0
+  - '0'
+- - freq_xlating_fir_filter_xxx_0
+  - '0'
+  - fir_filter_xxx_0
+  - '0'
+- - fir_filter_xxx_0
+  - '0'
+  - analog_agc_xx_0
+  - '0'
+- - analog_agc_xx_0
+  - '0'
+  - analog_pll_carriertracking_cc_0
+  - '0'
+- - analog_pll_carriertracking_cc_0
+  - '0'
+  - epy_block_pm
+  - '0'
+- - epy_block_pm
+  - '0'
+  - fir_filter_xxx_1
+  - '0'
+- - fir_filter_xxx_1
+  - '0'
+  - digital_costas_loop_cc_0
+  - '0'
+- - digital_costas_loop_cc_0
+  - '0'
+  - digital_clock_recovery_mm_xx_0
+  - '0'
+- - digital_clock_recovery_mm_xx_0
+  - '0'
+  - qtgui_const_sink_x_0
+  - '0'
+- - digital_clock_recovery_mm_xx_0
+  - '0'
+  - epy_block_0
+  - '0'
+- - epy_block_0
+  - frames
+  - blocks_message_debug_0
+  - print
+metadata:
+  file_format: 1
+  grc_version: 3.10.12.0

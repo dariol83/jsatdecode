@@ -1,0 +1,6 @@
+Shared decoder infrastructure for JSatDecode.
+
+The complex DC-removal adapter delegates to the ru.r2cloud:jradio:1.121
+implementation without duplicating its filter equations. jradio is licensed
+under Apache License 2.0; its license is included in licenses/jradio-LICENSE.txt.
+Mission-specific adapted DSP and its attribution remain in the mission modules.

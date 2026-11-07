@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<assembly xmlns="http://maven.apache.org/ASSEMBLY/2.2.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.2.0 https://maven.apache.org/xsd/assembly-2.2.0.xsd">
+    <id>bin</id>
+    <formats><format>zip</format><format>tar.gz</format></formats>
+    <includeBaseDirectory>true</includeBaseDirectory>
+    <baseDirectory>${project.build.finalName}</baseDirectory>
+    <dependencySets>
+        <dependencySet>
+            <outputDirectory>lib</outputDirectory><scope>runtime</scope><useProjectArtifact>false</useProjectArtifact>
+            <!-- Exclude both core variants here, then select only the thin one below. -->
+            <excludes><exclude>eu.dariolucia.jsatdecode:jsatdecode-core</exclude></excludes>
+            <useStrictFiltering>true</useStrictFiltering>
+        </dependencySet>
+        <dependencySet>
+            <outputDirectory>lib</outputDirectory><scope>runtime</scope><useProjectArtifact>false</useProjectArtifact>
+            <useTransitiveDependencies>false</useTransitiveDependencies>
+            <includes><include>eu.dariolucia.jsatdecode:jsatdecode-core:jar:modular</include></includes>
+            <useStrictFiltering>true</useStrictFiltering>
+        </dependencySet>
+    </dependencySets>
+    <fileSets>
+        <fileSet>
+            <directory>src/main/bin</directory><outputDirectory>bin</outputDirectory>
+            <includes><include>*.sh</include></includes><fileMode>0755</fileMode><lineEnding>unix</lineEnding>
+        </fileSet>
+        <fileSet>
+            <directory>src/main/bin</directory><outputDirectory>bin</outputDirectory>
+            <includes><include>*.bat</include></includes><fileMode>0644</fileMode><lineEnding>dos</lineEnding>
+        </fileSet>
+        <fileSet>
+            <directory>.</directory><outputDirectory>/</outputDirectory><includes><include>README.md</include></includes>
+        </fileSet>
+        <fileSet>
+            <directory>..</directory><outputDirectory>docs</outputDirectory>
+            <includes>
+                <include>README.md</include><include>distribution/README.md</include>
+                <include>core/README.md</include><include>core/docs/**</include><include>core/examples/**</include>
+                <include>decoder_*/README.md</include><include>decoder_*/docs/**</include><include>decoder_*/examples/**</include>
+            </includes>
+        </fileSet>
+        <fileSet><directory>../core/examples</directory><outputDirectory>examples/core</outputDirectory></fileSet>
+        <fileSet><directory>../decoder_elektrol_ggak/examples</directory><outputDirectory>examples/decoder_elektrol_ggak</outputDirectory></fileSet>
+        <fileSet><directory>../decoder_hinode/examples</directory><outputDirectory>examples/decoder_hinode</outputDirectory></fileSet>
+    </fileSets>
+</assembly>

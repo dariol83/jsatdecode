@@ -1,0 +1,1333 @@
+options:
+  parameters:
+    author: OpenAI / Dario Lucia
+    catch_exceptions: 'True'
+    category: '[Satellite]'
+    cmake_opt: ''
+    comment: ''
+    copyright: ''
+    description: Validated v10.2 decoder with selectable WAV or Pluto SDR input. Pluto
+      defaults to ip:192.168.2.1, manual gain 32 dB, 2 Msps / 2 MHz, native FIR decimation
+      to 500 kS/s.
+    gen_cmake: 'On'
+    gen_linking: dynamic
+    generate_options: qt_gui
+    hier_block_src_path: '.:'
+    id: hinode_solar_v10_3_native_grsat
+    max_nouts: '0'
+    output_language: python
+    placement: (0,0)
+    qt_qss_theme: ''
+    realtime_scheduling: ''
+    run: 'True'
+    run_command: '{python} -u {filename}'
+    run_options: run
+    sizing_mode: fixed
+    thread_safe_setters: ''
+    title: "Hinode S-band v10.3 \u2014 WAV or Pluto native GNU Radio + gr-satellites"
+    window_size: (1550,900)
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [8, 8]
+    rotation: 0
+    state: enabled
+
+blocks:
+- name: acq_seconds
+  id: variable
+  parameters:
+    comment: Validated v9.4.2 acquisition interval.
+    value: '12.0'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1032, 12]
+    rotation: 0
+    state: enabled
+- name: asm_errors
+  id: variable
+  parameters:
+    comment: gr-satellites ASM error threshold.
+    value: '4'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [920, 12]
+    rotation: 0
+    state: enabled
+- name: bb_rate
+  id: variable
+  parameters:
+    comment: Internal native DSP sample rate.
+    value: file_rate
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [232, 12]
+    rotation: 0
+    state: enabled
+- name: clock_mu
+  id: variable
+  parameters:
+    comment: ''
+    value: '0.5'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [2040, 12]
+    rotation: 0
+    state: enabled
+- name: clock_omega_limit
+  id: variable
+  parameters:
+    comment: ''
+    value: '0.005'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [2152, 12]
+    rotation: 0
+    state: enabled
+- name: costas_block_name
+  id: variable
+  parameters:
+    comment: Native Costas GRC block ID used by acquisition controller.
+    value: '''native_costas'''
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1410, 84]
+    rotation: 0
+    state: enabled
+- name: costas_bw_acq
+  id: variable
+  parameters:
+    comment: ''
+    value: '0.02'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1368, 12]
+    rotation: 0
+    state: enabled
+- name: costas_bw_steady
+  id: variable
+  parameters:
+    comment: ''
+    value: '0.005'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1480, 12]
+    rotation: 0
+    state: enabled
+- name: file_rate
+  id: variable
+  parameters:
+    comment: Reference SDR++ stereo-I/Q WAV sample rate.
+    value: '500000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [120, 12]
+    rotation: 0
+    state: enabled
+- name: frame_file
+  id: variable
+  parameters:
+    comment: 'Output: concatenated 892-byte post-RS AOS transfer frames.'
+    value: '''hinode_v10_frames.tf'''
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [760, 12]
+    rotation: 0
+    state: enabled
+- name: iq_wav_file
+  id: variable
+  parameters:
+    comment: SDR++ stereo float32 I/Q WAV.
+    value: '''/absolute/path/to/Hinode_90secs.wav'''
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [568, 12]
+    rotation: 0
+    state: enabled
+- name: mm_block_name
+  id: variable
+  parameters:
+    comment: Native M&M GRC block ID used by acquisition controller.
+    value: '''native_mm'''
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1840, 88.0]
+    rotation: 0
+    state: enabled
+- name: mm_gain_mu_acq
+  id: variable
+  parameters:
+    comment: ''
+    value: '0.03'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1592, 12]
+    rotation: 0
+    state: enabled
+- name: mm_gain_mu_steady
+  id: variable
+  parameters:
+    comment: ''
+    value: '0.01'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1704, 12]
+    rotation: 0
+    state: enabled
+- name: mm_gain_omega_acq
+  id: variable
+  parameters:
+    comment: ''
+    value: '0.0001'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1816, 12]
+    rotation: 0
+    state: enabled
+- name: mm_gain_omega_steady
+  id: variable
+  parameters:
+    comment: ''
+    value: '0.000025'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1928, 12]
+    rotation: 0
+    state: enabled
+- name: pll_block_name
+  id: variable
+  parameters:
+    comment: Native PLL GRC block ID used by acquisition controller.
+    value: '''native_pll'''
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1260, 84]
+    rotation: 0
+    state: enabled
+- name: pll_bw_acq
+  id: variable
+  parameters:
+    comment: ''
+    value: '0.03'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1144, 12]
+    rotation: 0
+    state: enabled
+- name: pll_bw_steady
+  id: variable
+  parameters:
+    comment: ''
+    value: '0.01'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1256, 12]
+    rotation: 0
+    state: enabled
+- name: pluto_bandwidth
+  id: variable
+  parameters:
+    comment: Pluto sample rate and RF bandwidth in Hz. Default 2 MHz / 2 Msps.
+    value: '2000000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [700, 84]
+    rotation: 0
+    state: enabled
+- name: pluto_decimation
+  id: variable
+  parameters:
+    comment: Automatically computed decimation factor to reach bb_rate=500 kS/s.
+    value: int(pluto_bandwidth / bb_rate)
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [980, 84]
+    rotation: 0
+    state: enabled
+- name: pluto_gain
+  id: variable
+  parameters:
+    comment: Manual Pluto RX1 gain in dB.
+    value: '32'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [850, 84]
+    rotation: 0
+    state: enabled
+- name: pluto_lpf_cutoff
+  id: variable
+  parameters:
+    comment: Anti-alias LPF cutoff before decimation.
+    value: '200000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1110, 84]
+    rotation: 0
+    state: enabled
+- name: pluto_lpf_taps
+  id: variable
+  parameters:
+    comment: Native FIR taps for Pluto decimation path.
+    value: firdes.low_pass(1.0, pluto_bandwidth, pluto_lpf_cutoff, pluto_lpf_transition,
+      window.WIN_HAMMING)
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1680, 96.0]
+    rotation: 0
+    state: enabled
+- name: pluto_lpf_transition
+  id: variable
+  parameters:
+    comment: Anti-alias LPF transition width before decimation.
+    value: '35000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1544, 88.0]
+    rotation: 0
+    state: enabled
+- name: pluto_uri
+  id: variable
+  parameters:
+    comment: Pluto IIO URI.
+    value: '''ip:192.168.2.1'''
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [560, 84]
+    rotation: 0
+    state: enabled
+- name: rf_freq
+  id: variable
+  parameters:
+    comment: Hinode nominal S-band telemetry frequency.
+    value: '2256220000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [8, 12]
+    rotation: 0
+    state: enabled
+- name: rrc_taps
+  id: variable
+  parameters:
+    comment: Exact 31-tap RRC from validated v9.4.2.
+    value: '[0.003561560297,0.004399490543,0.002868671203,-0.001375013846,-0.00765449414,-0.01418049261,-0.01830869913,-0.01712624915,-0.008240184747,0.009439719841,0.03515513241,0.06617614627,0.09818095714,0.1260803193,0.1450993717,0.1518475264,0.1450993717,0.1260803193,0.09818095714,0.06617614627,0.03515513241,0.009439719841,-0.008240184747,-0.01712624915,-0.01830869913,-0.01418049261,-0.00765449414,-0.001375013846,0.002868671203,0.004399490543,0.003561560297]'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [8, 84]
+    rotation: 0
+    state: enabled
+- name: source_select
+  id: variable
+  parameters:
+    comment: 'Input source selector: 0 = WAV file, 1 = Pluto SDR.'
+    value: '0'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [400, 112.0]
+    rotation: 0
+    state: enabled
+- name: sps
+  id: variable
+  parameters:
+    comment: Samples per symbol.
+    value: bb_rate / symbol_rate
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [456, 12]
+    rotation: 0
+    state: enabled
+- name: symbol_gain
+  id: variable
+  parameters:
+    comment: ''
+    value: '5.0'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [2264, 12]
+    rotation: 0
+    state: enabled
+- name: symbol_rate
+  id: variable
+  parameters:
+    comment: Recovered BPSK symbol rate.
+    value: '65600.0'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [344, 12]
+    rotation: 0
+    state: enabled
+- name: acq_controller
+  id: epy_block
+  parameters:
+    _source_code: "import inspect\nimport threading\nimport time\nfrom gnuradio import\
+      \ gr\n\nclass blk(gr.basic_block):\n    \"\"\"\n    Out-of-band acquisition\
+      \ controller.\n\n    No stream ports: this block never processes samples. The\
+      \ three block-name\n    parameters are ordinary GRC string variables. At runtime\
+      \ the controller\n    resolves the corresponding native blocks from the generated\
+      \ top_block.\n    \"\"\"\n\n    def __init__(self,\n                 pll_block_name='native_pll',\n\
+      \                 costas_block_name='native_costas',\n                 mm_block_name='native_mm',\n\
+      \                 sample_rate=500000.0,\n                 symbol_rate=65600.0,\n\
+      \                 acq_seconds=12.0,\n                 pll_steady=0.01,\n   \
+      \              costas_steady=0.005,\n                 mm_mu_steady=0.01,\n \
+      \                mm_omega_steady=0.000025):\n        gr.basic_block.__init__(\n\
+      \            self,\n            name='Hinode acquisition controller',\n    \
+      \        in_sig=None,\n            out_sig=None)\n\n        self.pll_block_name\
+      \ = str(pll_block_name)\n        self.costas_block_name = str(costas_block_name)\n\
+      \        self.mm_block_name = str(mm_block_name)\n\n        self.sample_limit\
+      \ = int(round(float(sample_rate) * float(acq_seconds)))\n        self.symbol_limit\
+      \ = int(round(float(symbol_rate) * float(acq_seconds)))\n\n        self.pll_steady\
+      \ = float(pll_steady)\n        self.costas_steady = float(costas_steady)\n \
+      \       self.mm_mu_steady = float(mm_mu_steady)\n        self.mm_omega_steady\
+      \ = float(mm_omega_steady)\n\n        # GRC instantiates the block once for\
+      \ introspection. In the actual\n        # generated flowgraph, the caller is\
+      \ top_block.__init__, whose local\n        # 'self' is the generated flowgraph\
+      \ instance.\n        frame = inspect.currentframe()\n        caller = frame.f_back\
+      \ if frame is not None else None\n        parent = caller.f_locals.get('self')\
+      \ if caller is not None else None\n\n        if parent is not None:\n      \
+      \      self._parent = parent\n            threading.Thread(\n              \
+      \  target=self._run,\n                daemon=True,\n                name='hinode-acquisition-control').start()\n\
+      \n    def _resolve_blocks(self):\n        # The controller can be constructed\
+      \ before all later blocks exist.\n        # Wait briefly for the generated top_block\
+      \ constructor to finish.\n        for _ in range(5000):\n            try:\n\
+      \                pll = getattr(self._parent, self.pll_block_name)\n        \
+      \        costas = getattr(self._parent, self.costas_block_name)\n          \
+      \      mm = getattr(self._parent, self.mm_block_name)\n                return\
+      \ pll, costas, mm\n            except AttributeError:\n                time.sleep(0.001)\n\
+      \        return None, None, None\n\n    def _run(self):\n        pll, costas,\
+      \ mm = self._resolve_blocks()\n        if pll is None or costas is None or mm\
+      \ is None:\n            print('[Hinode-v10.2] acquisition controller: native\
+      \ block lookup failed')\n            return\n\n        carrier_done = False\n\
+      \        clock_done = False\n\n        while not (carrier_done and clock_done):\n\
+      \            try:\n                if (not carrier_done\n                  \
+      \      and int(costas.nitems_written(0)) >= self.sample_limit):\n          \
+      \          pll.set_loop_bandwidth(self.pll_steady)\n                    costas.set_loop_bandwidth(self.costas_steady)\n\
+      \                    carrier_done = True\n                    print('[Hinode-v10.2]\
+      \ PLL/Costas -> steady state at ~12 s signal time')\n\n                if (not\
+      \ clock_done\n                        and int(mm.nitems_written(0)) >= self.symbol_limit):\n\
+      \                    mm.set_gain_mu(self.mm_mu_steady)\n                   \
+      \ mm.set_gain_omega(self.mm_omega_steady)\n                    clock_done =\
+      \ True\n                    print('[Hinode-v10.2] M&M -> steady state at ~12\
+      \ s signal time')\n\n            except Exception as exc:\n                print('[Hinode-v10.2]\
+      \ acquisition controller warning:', repr(exc))\n                return\n\n \
+      \           time.sleep(0.001)\n"
+    acq_seconds: acq_seconds
+    affinity: ''
+    alias: ''
+    comment: Out-of-band controller. Uses three ordinary GRC block-name variables;
+      no stream samples pass through Python.
+    costas_block_name: costas_block_name
+    costas_steady: costas_bw_steady
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    mm_block_name: mm_block_name
+    mm_mu_steady: mm_gain_mu_steady
+    mm_omega_steady: mm_gain_omega_steady
+    pll_block_name: pll_block_name
+    pll_steady: pll_bw_steady
+    sample_rate: bb_rate
+    symbol_rate: symbol_rate
+  states:
+    _io_cache: '(''Hinode acquisition controller'', ''blk'', [(''pll_block_name'',
+      "''native_pll''"), (''costas_block_name'', "''native_costas''"), (''mm_block_name'',
+      "''native_mm''"), (''sample_rate'', ''500000.0''), (''symbol_rate'', ''65600.0''),
+      (''acq_seconds'', ''12.0''), (''pll_steady'', ''0.01''), (''costas_steady'',
+      ''0.005''), (''mm_mu_steady'', ''0.01''), (''mm_omega_steady'', ''2.5e-05'')],
+      [], [], ''\nOut-of-band acquisition controller.\n\nNo stream ports: this block
+      never processes samples. The three block-name\nparameters are ordinary GRC string
+      variables. At runtime the controller\nresolves the corresponding native blocks
+      from the generated top_block.\n'', [''costas_block_name'', ''costas_steady'',
+      ''mm_block_name'', ''mm_mu_steady'', ''mm_omega_steady'', ''pll_block_name'',
+      ''pll_steady''])'
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [2060, 470]
+    rotation: 0
+    state: enabled
+- name: constellation
+  id: qtgui_const_sink_x
+  parameters:
+    affinity: ''
+    alias: ''
+    alpha1: '1.0'
+    alpha10: '1.0'
+    alpha2: '1.0'
+    alpha3: '1.0'
+    alpha4: '1.0'
+    alpha5: '1.0'
+    alpha6: '1.0'
+    alpha7: '1.0'
+    alpha8: '1.0'
+    alpha9: '1.0'
+    autoscale: 'True'
+    axislabels: 'True'
+    color1: '"blue"'
+    color10: '"red"'
+    color2: '"red"'
+    color3: '"red"'
+    color4: '"red"'
+    color5: '"red"'
+    color6: '"red"'
+    color7: '"red"'
+    color8: '"red"'
+    color9: '"red"'
+    comment: Recovered 1-sample/symbol constellation. GUI only; disable for maximum
+      benchmark speed.
+    grid: 'True'
+    gui_hint: 0,1,1,1
+    label1: native M&M output
+    label10: ''''''
+    label2: ''''''
+    label3: ''''''
+    label4: ''''''
+    label5: ''''''
+    label6: ''''''
+    label7: ''''''
+    label8: ''''''
+    label9: ''''''
+    legend: 'False'
+    marker1: '0'
+    marker10: '0'
+    marker2: '0'
+    marker3: '0'
+    marker4: '0'
+    marker5: '0'
+    marker6: '0'
+    marker7: '0'
+    marker8: '0'
+    marker9: '0'
+    name: Hinode recovered BPSK symbols
+    nconnections: '1'
+    size: '4096'
+    style1: '0'
+    style10: '0'
+    style2: '0'
+    style3: '0'
+    style4: '0'
+    style5: '0'
+    style6: '0'
+    style7: '0'
+    style8: '0'
+    style9: '0'
+    tr_chan: '0'
+    tr_level: '0.0'
+    tr_mode: qtgui.TRIG_MODE_FREE
+    tr_slope: qtgui.TRIG_SLOPE_POS
+    tr_tag: '""'
+    type: complex
+    update_time: '0.25'
+    width1: '1'
+    width10: '1'
+    width2: '1'
+    width3: '1'
+    width4: '1'
+    width5: '1'
+    width6: '1'
+    width7: '1'
+    width8: '1'
+    width9: '1'
+    xmax: '2'
+    xmin: '-2'
+    ymax: '2'
+    ymin: '-2'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [2472, 88.0]
+    rotation: 0
+    state: enabled
+- name: deframe_p0_inverted
+  id: satellites_ccsds_concatenated_deframer
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Pair phase 0 / inverted polarity.
+    convolutional: '"CCSDS"'
+    frame_size: 223 * 4
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    options: '""'
+    precoding: None
+    rs_basis: '"dual"'
+    rs_interleaving: '4'
+    scrambler: '"CCSDS"'
+    threshold: asm_errors
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [2860, 400]
+    rotation: 0
+    state: enabled
+- name: deframe_p0_normal
+  id: satellites_ccsds_concatenated_deframer
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Pair phase 0 / normal polarity.
+    convolutional: '"CCSDS"'
+    frame_size: 223 * 4
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    options: '""'
+    precoding: None
+    rs_basis: '"dual"'
+    rs_interleaving: '4'
+    scrambler: '"CCSDS"'
+    threshold: asm_errors
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [2860, 300]
+    rotation: 0
+    state: enabled
+- name: deframe_p1_inverted
+  id: satellites_ccsds_concatenated_deframer
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Pair phase 1 / inverted polarity.
+    convolutional: '"CCSDS"'
+    frame_size: 223 * 4
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    options: '""'
+    precoding: None
+    rs_basis: '"dual"'
+    rs_interleaving: '4'
+    scrambler: '"CCSDS"'
+    threshold: asm_errors
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [3040, 620]
+    rotation: 0
+    state: enabled
+- name: deframe_p1_normal
+  id: satellites_ccsds_concatenated_deframer
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Pair phase 1 / normal polarity.
+    convolutional: '"CCSDS"'
+    frame_size: 223 * 4
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    options: '""'
+    precoding: None
+    rs_basis: '"dual"'
+    rs_interleaving: '4'
+    scrambler: '"CCSDS"'
+    threshold: asm_errors
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [3040, 520]
+    rotation: 0
+    state: enabled
+- name: frame_collector
+  id: epy_block
+  parameters:
+    _source_code: "from collections import deque\nfrom pathlib import Path\nimport\
+      \ pmt\nfrom gnuradio import gr\n\nclass blk(gr.basic_block):\n    \"\"\"\n \
+      \   Low-rate four-branch gr-satellites PDU collector.\n\n    It does not process\
+      \ streaming samples. Exact duplicate frames emitted by\n    parallel ambiguity\
+      \ branches are suppressed using the last three accepted\n    payloads, matching\
+      \ the proven SatDecode receiver strategy.\n    \"\"\"\n    def __init__(self,\
+      \ outfile='hinode_v10_frames.tf'):\n        gr.basic_block.__init__(\n     \
+      \       self, name='Hinode four-branch PDU collector',\n            in_sig=None,\
+      \ out_sig=None)\n\n        self.outfile = str(outfile)\n        self.recent\
+      \ = deque(maxlen=3)\n        self.count = 0\n        self.duplicates = 0\n \
+      \       self.branch_counts = {\n            'p0_normal': 0,\n            'p0_inverted':\
+      \ 0,\n            'p1_normal': 0,\n            'p1_inverted': 0,\n        }\n\
+      \n        p = Path(self.outfile).expanduser()\n        if p.parent != Path('.'):\n\
+      \            p.parent.mkdir(parents=True, exist_ok=True)\n        self.f = p.open('wb')\n\
+      \n        for name in self.branch_counts:\n            port = pmt.intern(name)\n\
+      \            self.message_port_register_in(port)\n\n        self.set_msg_handler(pmt.intern('p0_normal'),\
+      \ self._p0_normal)\n        self.set_msg_handler(pmt.intern('p0_inverted'),\
+      \ self._p0_inverted)\n        self.set_msg_handler(pmt.intern('p1_normal'),\
+      \ self._p1_normal)\n        self.set_msg_handler(pmt.intern('p1_inverted'),\
+      \ self._p1_inverted)\n\n    @staticmethod\n    def _payload(msg):\n        obj\
+      \ = pmt.cdr(msg) if pmt.is_pair(msg) else msg\n        return bytes(pmt.u8vector_elements(obj))\n\
+      \n    def _p0_normal(self, msg): self._handle('p0_normal', msg)\n    def _p0_inverted(self,\
+      \ msg): self._handle('p0_inverted', msg)\n    def _p1_normal(self, msg): self._handle('p1_normal',\
+      \ msg)\n    def _p1_inverted(self, msg): self._handle('p1_inverted', msg)\n\n\
+      \    def _handle(self, branch, msg):\n        data = self._payload(msg)\n  \
+      \      self.branch_counts[branch] += 1\n\n        if data in self.recent:\n\
+      \            self.duplicates += 1\n            return\n\n        self.recent.append(data)\n\
+      \        self.f.write(data)\n        self.count += 1\n\n        if self.count\
+      \ <= 5 or (self.count % 25) == 0:\n            vcid = (data[1] & 0x3f) if len(data)\
+      \ >= 2 else -1\n            print('[Hinode-v10] frame=%d branch=%s bytes=%d\
+      \ VCID=%d' %\n                  (self.count, branch, len(data), vcid))\n\n \
+      \   def stop(self):\n        try:\n            self.f.flush()\n            self.f.close()\n\
+      \        except Exception:\n            pass\n        print('[Hinode-v10] accepted\
+      \ frames=%d duplicates=%d branches=%s' %\n              (self.count, self.duplicates,\n\
+      \               ' '.join('%s=%d' % (k,v) for k,v in self.branch_counts.items())))\n\
+      \        print('[Hinode-v10] output=%s (892-byte post-RS transfer frames)' %\
+      \ self.outfile)\n        return True\n"
+    affinity: ''
+    alias: ''
+    comment: Low-rate PDU-only collector/deduplicator. No streaming DSP in Python.
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    outfile: frame_file
+  states:
+    _io_cache: ('Hinode four-branch PDU collector', 'blk', [('outfile', "'hinode_v10_frames.tf'")],
+      [('p1_inverted', 'message', 1), ('p0_normal', 'message', 1), ('p1_normal', 'message',
+      1), ('p0_inverted', 'message', 1)], [], '\nLow-rate four-branch gr-satellites
+      PDU collector.\n\nIt does not process streaming samples. Exact duplicate frames
+      emitted by\nparallel ambiguity branches are suppressed using the last three
+      accepted\npayloads, matching the proven SatDecode receiver strategy.\n', ['outfile'])
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [3280, 430]
+    rotation: 0
+    state: enabled
+- name: import_0
+  id: import
+  parameters:
+    alias: ''
+    comment: ''
+    imports: from gnuradio.fft import window
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [2072, 88.0]
+    rotation: 0
+    state: enabled
+- name: import_firdes
+  id: import
+  parameters:
+    alias: ''
+    comment: Explicit import for Pluto decimating FIR tap design.
+    imports: from gnuradio.filter import firdes
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1976, 88.0]
+    rotation: 0
+    state: enabled
+- name: import_math
+  id: import
+  parameters:
+    alias: ''
+    comment: ''
+    imports: import math
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [260, 84]
+    rotation: 0
+    state: enabled
+- name: invert_p0
+  id: blocks_multiply_const_vxx
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: BPSK polarity-inverted branch.
+    const: '-1.0'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    type: float
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [2650, 380]
+    rotation: 0
+    state: enabled
+- name: invert_p1
+  id: blocks_multiply_const_vxx
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Inverted polarity for pair-phase-1 branch.
+    const: '-1.0'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    type: float
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [2830, 600]
+    rotation: 0
+    state: enabled
+- name: iq_wav_source
+  id: blocks_wavfile_source
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Offline SDR++ stereo IQ WAV source. Channel 0 = I, channel 1 = Q. Repeat
+      is disabled so the flowgraph ends at EOF.
+    file: /mnt/temp/Mullberg28092026/Hinode_90secs.wav
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    nchan: '2'
+    repeat: 'False'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [16, 220]
+    rotation: 0
+    state: enabled
+- name: native_agc
+  id: analog_agc_xx
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Native replacement for validated SatDump-equivalent AGC.
+    gain: '1.0'
+    max_gain: '65536.0'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    rate: '0.001'
+    reference: '1.0'
+    type: complex
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [800, 220]
+    rotation: 0
+    state: enabled
+- name: native_costas
+  id: digital_costas_loop_cc
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Native BPSK Costas loop. Acquisition -> steady switch at 12 s.
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    order: '2'
+    use_snr: 'False'
+    w: costas_bw_acq
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1900, 250]
+    rotation: 0
+    state: enabled
+- name: native_dc_iir
+  id: single_pole_iir_filter_xx
+  parameters:
+    affinity: ''
+    alias: ''
+    alpha: '0.0001'
+    comment: Native GNU Radio Single Pole IIR Filter; complex, alpha=0.0001.
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    type: complex
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [680, 384.0]
+    rotation: 0
+    state: enabled
+- name: native_dc_sub
+  id: blocks_sub_xx
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: 'CorrectIQ equivalent: y=x-running_DC_estimate.'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    num_inputs: '2'
+    type: complex
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [616, 208.0]
+    rotation: 0
+    state: enabled
+- name: native_mm
+  id: digital_clock_recovery_mm_xx
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Native Mueller & Muller timing recovery; same initial omega/mu/limits
+      as v9.4.2.
+    gain_mu: mm_gain_mu_acq
+    gain_omega: mm_gain_omega_acq
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    mu: clock_mu
+    omega: sps
+    omega_relative_limit: clock_omega_limit
+    type: complex
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [2090, 250]
+    rotation: 0
+    state: enabled
+- name: native_pll
+  id: analog_pll_carriertracking_cc
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Residual-carrier PLL. Starts at acquisition bandwidth; controller changes
+      to steady bandwidth.
+    max_freq: '0.5'
+    maxoutbuf: '0'
+    min_freq: '-0.5'
+    minoutbuf: '0'
+    w: pll_bw_acq
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [985, 220]
+    rotation: 0
+    state: enabled
+- name: native_rrc
+  id: fir_filter_xxx
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Exact 31-tap validated RRC, implemented by native FIR.
+    decim: '1'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    samp_delay: '0'
+    taps: rrc_taps
+    type: ccf
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1710, 250]
+    rotation: 0
+    state: enabled
+- name: native_symbol_gain
+  id: blocks_multiply_const_vxx
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Fixed symbol gain used by the validated receiver.
+    const: symbol_gain
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    type: complex
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [2290, 250]
+    rotation: 0
+    state: enabled
+- name: pluto_decim
+  id: fir_filter_xxx
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Native complex FIR decimator. Factor is pluto_bandwidth/bb_rate (4 at
+      2 Msps).
+    decim: pluto_decimation
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    samp_delay: '0'
+    taps: pluto_lpf_taps
+    type: ccf
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [260, 430]
+    rotation: 0
+    state: enabled
+- name: pluto_source
+  id: iio_fmcomms2_source
+  parameters:
+    affinity: ''
+    alias: ''
+    bandwidth: pluto_bandwidth
+    bbdc: 'True'
+    buffer_size: '65536'
+    comment: Pluto Plus live source. 2 Msps / 2 MHz by default, manual gain 32 dB.
+    filter: ''''''
+    filter_source: '''Auto'''
+    fpass: '0'
+    frequency: rf_freq
+    fstop: '0'
+    gain1: '''manual'''
+    gain2: '''slow_attack'''
+    len_tag_key: '""'
+    manual_gain1: pluto_gain
+    manual_gain2: '0'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    quadrature: 'True'
+    rf_port_select: '''A_BALANCED'''
+    rfdc: 'True'
+    rx1_en: 'True'
+    rx2_en: 'False'
+    samplerate: pluto_bandwidth
+    type: fc32
+    uri: pluto_uri
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [16, 430]
+    rotation: 0
+    state: enabled
+- name: q_extract
+  id: blocks_complex_to_float
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Use Q/imaginary component exactly as validated PM-to-BPSK extraction.
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1170, 220]
+    rotation: 0
+    state: enabled
+- name: q_real_null_sink
+  id: blocks_null_sink
+  parameters:
+    affinity: ''
+    alias: ''
+    bus_structure_sink: '[[0,],]'
+    comment: Discard q_extract real output; imaginary/Q continues to demodulation.
+    num_inputs: '1'
+    type: float
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1340, 150]
+    rotation: 0
+    state: enabled
+- name: q_to_complex
+  id: blocks_float_to_complex
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Reconstruct 0+jQ.
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1350, 250]
+    rotation: 0
+    state: enabled
+- name: skip_one
+  id: blocks_skiphead
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: 'Second convolutional coded-pair phase: skip one soft symbol.'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    num_items: '1'
+    type: float
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [2650, 520]
+    rotation: 0
+    state: enabled
+- name: soft_real
+  id: blocks_complex_to_real
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Float soft symbols for gr-satellites.
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [2475, 250]
+    rotation: 0
+    state: enabled
+- name: source_selector
+  id: blocks_selector
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Select 0=WAV path or 1=Pluto path. Both selector inputs are normalized
+      to 500 kS/s.
+    enabled: 'True'
+    input_index: source_select
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    num_inputs: '2'
+    num_outputs: '1'
+    output_index: '0'
+    showports: 'True'
+    type: complex
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [456, 328.0]
+    rotation: 0
+    state: enabled
+- name: spectrum
+  id: qtgui_freq_sink_x
+  parameters:
+    affinity: ''
+    alias: ''
+    alpha1: '1.0'
+    alpha10: '1.0'
+    alpha2: '1.0'
+    alpha3: '1.0'
+    alpha4: '1.0'
+    alpha5: '1.0'
+    alpha6: '1.0'
+    alpha7: '1.0'
+    alpha8: '1.0'
+    alpha9: '1.0'
+    autoscale: 'False'
+    average: '1.0'
+    axislabels: 'True'
+    bw: bb_rate
+    color1: '"blue"'
+    color10: '"dark blue"'
+    color2: '"red"'
+    color3: '"green"'
+    color4: '"black"'
+    color5: '"cyan"'
+    color6: '"magenta"'
+    color7: '"yellow"'
+    color8: '"dark red"'
+    color9: '"dark green"'
+    comment: Raw 500 ksps input spectrum, matching SatDump no-resample configuration.
+    ctrlpanel: 'False'
+    fc: '0'
+    fftsize: '4096'
+    freqhalf: 'True'
+    grid: 'True'
+    gui_hint: 0,0,1,1
+    label: Relative Gain
+    label1: Hinode baseband
+    label10: ''''''
+    label2: ''''''
+    label3: ''''''
+    label4: ''''''
+    label5: ''''''
+    label6: ''''''
+    label7: ''''''
+    label8: ''''''
+    label9: ''''''
+    legend: 'True'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    name: Hinode input spectrum
+    nconnections: '1'
+    norm_window: 'False'
+    showports: 'False'
+    tr_chan: '0'
+    tr_level: '0.0'
+    tr_mode: qtgui.TRIG_MODE_FREE
+    tr_tag: '""'
+    type: complex
+    units: dB
+    update_time: '0.25'
+    width1: '1'
+    width10: '1'
+    width2: '1'
+    width3: '1'
+    width4: '1'
+    width5: '1'
+    width6: '1'
+    width7: '1'
+    width8: '1'
+    width9: '1'
+    wintype: window.WIN_BLACKMAN_hARRIS
+    ymax: '10'
+    ymin: '-100'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [680, 552.0]
+    rotation: 0
+    state: enabled
+- name: subcarrier_rotator
+  id: blocks_rotator_cc
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Continuous -65.6 kHz complex rotation.
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    phase_inc: -2.0 * math.pi * symbol_rate / bb_rate
+    tag_inc_update: 'False'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1530, 250]
+    rotation: 0
+    state: enabled
+- name: wav_iq_to_complex
+  id: blocks_float_to_complex
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: 'Reconstruct complex baseband: channel 0 -> I, channel 1 -> Q.'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [260, 220]
+    rotation: 0
+    state: enabled
+- name: zero_float
+  id: analog_const_source_x
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Zero real component for reconstructed j*Q signal.
+    const: '0.0'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    type: float
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1170, 340]
+    rotation: 0
+    state: enabled
+
+connections:
+- [deframe_p0_inverted, out, frame_collector, p0_inverted]
+- [deframe_p0_normal, out, frame_collector, p0_normal]
+- [deframe_p1_inverted, out, frame_collector, p1_inverted]
+- [deframe_p1_normal, out, frame_collector, p1_normal]
+- [invert_p0, '0', deframe_p0_inverted, '0']
+- [invert_p1, '0', deframe_p1_inverted, '0']
+- [iq_wav_source, '0', wav_iq_to_complex, '0']
+- [iq_wav_source, '1', wav_iq_to_complex, '1']
+- [native_agc, '0', native_pll, '0']
+- [native_costas, '0', native_mm, '0']
+- [native_dc_iir, '0', native_dc_sub, '1']
+- [native_dc_sub, '0', native_agc, '0']
+- [native_mm, '0', native_symbol_gain, '0']
+- [native_pll, '0', q_extract, '0']
+- [native_rrc, '0', native_costas, '0']
+- [native_symbol_gain, '0', constellation, '0']
+- [native_symbol_gain, '0', soft_real, '0']
+- [pluto_decim, '0', source_selector, '1']
+- [pluto_source, '0', pluto_decim, '0']
+- [q_extract, '0', q_real_null_sink, '0']
+- [q_extract, '1', q_to_complex, '1']
+- [q_to_complex, '0', subcarrier_rotator, '0']
+- [skip_one, '0', deframe_p1_normal, '0']
+- [skip_one, '0', invert_p1, '0']
+- [soft_real, '0', deframe_p0_normal, '0']
+- [soft_real, '0', invert_p0, '0']
+- [soft_real, '0', skip_one, '0']
+- [source_selector, '0', native_dc_iir, '0']
+- [source_selector, '0', native_dc_sub, '0']
+- [source_selector, '0', spectrum, '0']
+- [subcarrier_rotator, '0', native_rrc, '0']
+- [wav_iq_to_complex, '0', source_selector, '0']
+- [zero_float, '0', q_to_complex, '0']
+
+metadata:
+  file_format: 1
+  grc_version: 3.10.12.0
