@@ -31,11 +31,6 @@
         <developerConnection>scm:git:git@github.com:dariol83/jsatdecode.git</developerConnection>
     </scm>
 
-    <properties>
-        <maven.gpg.version>1.6</maven.gpg.version>
-        <maven.sonatype.version>0.4.0</maven.sonatype.version>
-    </properties>
-
     <modules>
         <module>core</module>
         <module>decoder_base</module>
@@ -47,34 +42,10 @@
     <profiles>
         <profile>
             <id>release</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-gpg-plugin</artifactId>
-                        <version>${maven.gpg.version}</version>
-                        <executions>
-                            <execution>
-                                <id>sign-artifacts</id>
-                                <phase>verify</phase>
-                                <goals>
-                                    <goal>sign</goal>
-                                </goals>
-                            </execution>
-                        </executions>
-                    </plugin>
-                    <plugin>
-                        <groupId>org.sonatype.central</groupId>
-                        <artifactId>central-publishing-maven-plugin</artifactId>
-                        <version>${maven.sonatype.version}</version>
-                        <extensions>true</extensions>
-                        <configuration>
-                            <publishingServerId>central</publishingServerId>
-                            <tokenAuth>true</tokenAuth>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
+            <properties>
+                <!-- This aggregator is not a published parent POM. -->
+                <maven.deploy.skip>true</maven.deploy.skip>
+            </properties>
         </profile>
     </profiles>
 </project>
