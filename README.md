@@ -66,6 +66,7 @@ bin/jsatinspector.bat --help
 
 ## Documentation
 
+- [Configuration reference](core/docs/configuration-reference.md) - All source and distribution keys, defaults and ranges, including recording frequency offset
 - [Core Documentation](core/README.md) - Source, runtime, distribution, and monitoring configuration
 - [Specification](core/specs/JSatDecode_Specification.md) - Current framework behavior and contracts
 - [Architecture](core/docs/architecture.md) - Design decisions and implementation details

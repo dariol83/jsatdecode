@@ -78,6 +78,7 @@ do not use JUnit. Desktop and external-recording checks are opt-in; see the
 
 ## Documentation
 
+- [Source and distribution configuration reference](docs/configuration-reference.md) - All keys, defaults and ranges; recording frequency offset first
 - [Framework specification](specs/JSatDecode_Specification.md)
 - [Architecture and API contracts](docs/architecture.md)
 - [Implementation guide](docs/implementation-guide.md)
