@@ -85,9 +85,15 @@ accepts `--help` / `-h` and otherwise starts without arguments.
 | Location | Contents |
 | --- | --- |
 | `bin/` | Windows `.bat` and Unix `.sh` launchers for each application |
+| `icons/` | `icon-jsatdecode.png` and `icon-jsatinspector.png` for application shortcuts |
 | `lib/` | Core, shared decoder library, every mission decoder and all runtime JARs |
 | `examples/<module>/` | Example configurations from core and each mission |
 | `docs/` | Framework and mission documentation |
+
+For a Linux `.desktop` launcher, set `Icon` to the absolute path of
+`icons/icon-jsatdecode.png` or `icons/icon-jsatinspector.png` in the extracted
+distribution. For a Windows shortcut, convert the corresponding PNG to `.ico`
+and select that file with **Change Icon** in the shortcut's properties.
 
 Start with `docs/README.md` for the documentation index,
 `docs/core/docs/runtime.md` for decoder CLI and configuration details, or

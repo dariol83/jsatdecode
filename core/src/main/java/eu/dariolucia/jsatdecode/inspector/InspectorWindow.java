@@ -1,6 +1,7 @@
 package eu.dariolucia.jsatdecode.inspector;
 
 import eu.dariolucia.jsatdecode.dsp.fft.WindowFunction;
+import eu.dariolucia.jsatdecode.ui.ApplicationIcon;
 import eu.dariolucia.jsatdecode.ui.swing.SpectrumFrame;
 import eu.dariolucia.jsatdecode.ui.swing.SpectrumPanel;
 import eu.dariolucia.jsatdecode.ui.swing.SpectrumSettings;
@@ -74,6 +75,7 @@ final class InspectorWindow extends JFrame {
     InspectorWindow(InspectorSettings initial, Actions actions) {
         super("JSatInspector");
         requireEdt();
+        ApplicationIcon.INSPECTOR.applyTo(this);
         this.actions = Objects.requireNonNull(actions);
         lastValidSettings = Objects.requireNonNull(initial);
         ipAddress = new JTextField(initial.ipAddress(), 13);

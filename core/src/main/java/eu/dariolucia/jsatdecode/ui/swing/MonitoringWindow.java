@@ -1,5 +1,6 @@
 package eu.dariolucia.jsatdecode.ui.swing;
 
+import eu.dariolucia.jsatdecode.ui.ApplicationIcon;
 import eu.dariolucia.jsatdecode.ui.swing.UiViewModel.LockState;
 import eu.dariolucia.jsatdecode.ui.swing.UiViewModel.Quality;
 import eu.dariolucia.jsatdecode.ui.swing.UiViewModel.StatusRow;
@@ -49,6 +50,7 @@ final class MonitoringWindow extends JFrame {
                      java.util.function.IntConsumer rfWidth, java.util.function.IntConsumer baseWidth) {
         super(title);
         requireEdt();
+        ApplicationIcon.DECODE.applyTo(this);
         setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             @Override

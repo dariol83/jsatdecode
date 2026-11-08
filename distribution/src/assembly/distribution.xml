@@ -23,6 +23,10 @@
             <directory>.</directory><outputDirectory>/</outputDirectory><includes><include>README.md</include></includes>
         </fileSet>
         <fileSet>
+            <directory>../core/src/main/resources</directory><outputDirectory>icons</outputDirectory>
+            <includes><include>icon-jsatdecode.png</include><include>icon-jsatinspector.png</include></includes>
+        </fileSet>
+        <fileSet>
             <directory>..</directory><outputDirectory>docs</outputDirectory>
             <includes>
                 <include>README.md</include><include>distribution/README.md</include>

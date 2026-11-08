@@ -13,6 +13,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.zip.ZipFile;
 
+import javax.imageio.ImageIO;
+
 /** Exercises the actual assembled package in separate modular Java processes. */
 public final class DistributionTest {
     private static final boolean WINDOWS = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
@@ -46,6 +48,11 @@ public final class DistributionTest {
         }
         for (String script : List.of("jsatdecoder.sh", "jsatdecoder.bat", "jsatinspector.sh", "jsatinspector.bat")) {
             check(Files.isRegularFile(home.resolve("bin").resolve(script)), "Missing launcher " + script);
+        }
+        for (String icon : List.of("icon-jsatdecode.png", "icon-jsatinspector.png")) {
+            Path iconFile = home.resolve("icons").resolve(icon);
+            check(Files.isRegularFile(iconFile), "Missing application icon " + icon);
+            check(ImageIO.read(iconFile.toFile()) != null, "Unreadable application icon " + icon);
         }
         checkModuleDescriptors(lib);
         Path working = Files.createDirectories(extracted.resolve("caller working directory"));
