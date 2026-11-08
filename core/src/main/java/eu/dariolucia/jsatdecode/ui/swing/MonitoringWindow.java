@@ -126,6 +126,7 @@ final class MonitoringWindow extends JFrame {
         scroll.setBorder(BorderFactory.createTitledBorder("Status"));
         JPanel plots = new JPanel(new GridLayout(2, 1, 8, 8));
         rf = new SpectrumPanel("RF spectrum", spectra, rfWidth);
+        ToolTipManager.sharedInstance().registerComponent(rf);
         baseband = new SpectrumPanel("Baseband spectrum", spectra, baseWidth);
         JPanel rfContainer = new JPanel(new BorderLayout());
         rfContainer.add(rf, BorderLayout.CENTER);

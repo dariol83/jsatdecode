@@ -110,6 +110,10 @@ the relevant decoder and source checks.
 
 ## Interactive RF controls
 
+Hover over the RF plot to see the cursor's absolute frequency in MHz and signed
+offset from the center frequency in kHz. The tooltip is available when a complete
+spectrum with a known RF center is displayed.
+
 Below the RF spectrum, Auto range starts enabled and uses the
 once-per-second adaptive vertical range. Disable it to enable minimum/maximum
 sliders (initially -150 and 0 relative dB, adjustable from -200 to 100).
