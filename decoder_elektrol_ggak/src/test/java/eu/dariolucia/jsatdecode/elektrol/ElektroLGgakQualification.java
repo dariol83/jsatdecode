@@ -24,11 +24,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** Explicit independent GNU Radio qualification; never requires fixtures for normal builds. */
+/**
+ * Explicit independent GNU Radio qualification using the GRC v1.5 equations and the documented
+ * fixed FFT/normalizer segment policy; never requires fixtures for normal builds.
+ */
 public final class ElektroLGgakQualification {
     private static final int PAYLOAD_BYTES = 220;
     private static final long MAX_INPUT_BYTES = 512L * 1024 * 1024;
-    private static final String[] STAGES = {"channel", "timing", "agc", "pll", "pm", "rrc", "costas", "symbols"};
+    private static final String[] STAGES = {"channel", "afc", "timing", "pll", "pm", "rrc", "norm", "costas", "symbols"};
     private static final long EPOCH = 1_790_000_000_000_000_000L;
 
     private ElektroLGgakQualification() {}
@@ -54,6 +57,7 @@ public final class ElektroLGgakQualification {
         long expectedRejected = expectedRejected(directory);
         Configuration configuration = new Configuration(Map.of("sample_rate_hz", Integer.toString(rate), "dcblocker", "false"));
         StringBuilder report = new StringBuilder("{\n  \"sample_rate_hz\": ").append(rate)
+                .append(",\n  \"reference_policy\": \"GRC v1.5 equations; AFC decisions at FFT boundaries; complete 250-sample power segments; no EOF drain\"")
                 .append(",\n  \"samples\": ").append(input.length / 2)
                 .append(",\n  \"reference_frames\": ").append(expected.length / PAYLOAD_BYTES)
                 .append(",\n  \"reference_rejected_frames\": ").append(expectedRejected)
@@ -176,7 +180,7 @@ public final class ElektroLGgakQualification {
 
     private static String compareTaps(Path directory, int rate) throws IOException {
         Map<String, float[]> actual = new LinkedHashMap<>();
-        actual.put("channel", Firdes.lowPass(1., rate, 40000., 15000., Window.WIN_HAMMING, 6.76));
+        actual.put("channel", Firdes.lowPass(1., rate, 60000., 20000., Window.WIN_HAMMING, 6.76));
         actual.put("timing", Firdes.lowPass(1., 250000., 20000., 4000., Window.WIN_HAMMING, 6.76));
         actual.put("rrc", Firdes.rootRaisedCosine(1., 50000., 5000., .5, 31));
         StringBuilder result = new StringBuilder("{");
@@ -270,13 +274,22 @@ public final class ElektroLGgakQualification {
         String statistics(String stageName) {
             int count = Math.min(components, expected.length);
             double squaredError = 0., squaredReference = 0., maxError = 0.;
-            long signErrors = 0;
+            long signErrors = 0, significantSignErrors = 0;
             for (int n = 0; n < count; n++) {
                 double delta = actual[n] - expected[n];
                 squaredError += delta * delta;
                 squaredReference += expected[n] * expected[n];
                 maxError = Math.max(maxError, Math.abs(delta));
-                if ((n & 1) == 0 && (actual[n] >= 0) != (expected[n] >= 0)) signErrors++;
+                if ((n & 1) == 0 && (actual[n] >= 0) != (expected[n] >= 0)) {
+                    signErrors++;
+                    // AFC turn-on contains actual silence with tiny floating point FIR/
+                    // oscillator residues. A sign is significant unless BOTH complex
+                    // symbols are below this explicit unit-amplitude silence floor.
+                    // A small I component with substantial Q remains fully checked.
+                    if (Math.hypot(actual[n], actual[n + 1]) > 1e-6
+                            || Math.hypot(expected[n], expected[n + 1]) > 1e-6)
+                        significantSignErrors++;
+                }
             }
             // Report the best integer alignment and unit complex phase separately. Neither
             // alignment nor phase correction is applied to decoder samples or frame results.
@@ -307,12 +320,12 @@ public final class ElektroLGgakQualification {
                 throw new AssertionError("Unexpected stage output count for " + stageName + ": delta=" + extraSamples);
             if (!Double.isFinite(relativeError) || relativeError > (symbolStage ? .001 : .0001))
                 throw new AssertionError("Zero-lag numerical agreement failed for " + stageName + ": " + relativeError);
-            if (symbolStage && signErrors != 0)
-                throw new AssertionError("Recovered symbol sign differs from GNU Radio: " + signErrors);
+            if (symbolStage && significantSignErrors != 0)
+                throw new AssertionError("Recovered non-silent symbol sign differs from GNU Radio: " + significantSignErrors);
             return String.format(Locale.ROOT,
-                    "{\"reference_samples\":%d,\"java_samples\":%d,\"compared_samples\":%d,\"max_component_error\":%.12g,\"rms_relative_error_zero_lag\":%.12g,\"real_sign_disagreements_zero_lag\":%d,\"best_integer_lag\":%d,\"phase_correction_radians\":%.12g,\"rms_relative_error_aligned\":%.12g}",
+                    "{\"reference_samples\":%d,\"java_samples\":%d,\"compared_samples\":%d,\"max_component_error\":%.12g,\"rms_relative_error_zero_lag\":%.12g,\"real_sign_disagreements_zero_lag\":%d,\"significant_sign_disagreements\":%d,\"complex_silence_floor\":1e-6,\"best_integer_lag\":%d,\"phase_correction_radians\":%.12g,\"rms_relative_error_aligned\":%.12g}",
                     expected.length / 2, components / 2, count / 2, maxError,
-                    relativeError, signErrors, bestLag, bestPhase, bestRelative);
+                    relativeError, signErrors, significantSignErrors, bestLag, bestPhase, bestRelative);
         }
     }
 }

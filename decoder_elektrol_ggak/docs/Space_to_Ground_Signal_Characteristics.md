@@ -11,13 +11,16 @@ See [receiver details](receiver.md) for configuration and monitoring.
 | Nominal RF reference | 1693.000 MHz; source tuning/rotation is configured outside the decoder |
 | Decoder input | Complex float I/Q; default 1 MS/s; integer multiples of 250 kS/s from 250 kS/s through 16 MS/s |
 | Waveform | Residual-carrier phase modulation with a BPSK telemetry component |
+| Channel filter | Hamming low-pass, 60 kHz cutoff / 20 kHz transition before reduction to 250 kS/s |
 | Rate progression | Input -> 250 kS/s -> 50 kS/s -> nominal 5000 symbols/s |
 | Symbol and recovered bit rate | 5000 symbols/s and 5000 bit/s; one hard bit per symbol |
-| Residual-carrier recovery | PLL at 50 kS/s, bandwidth 0.02 rad/sample |
+| Coarse carrier acquisition | Squared-signal AFC at 250 kS/s; 65536-point Hann FFT, up to eight spectra averaged, two-block initialization; +/-30 kHz carrier search, 12 dB confidence, 40 Hz retune hysteresis; 131072-sample delay |
+| Residual-carrier recovery | PLL at 50 kS/s, bandwidth 0.002 rad/sample, frequency limits +/-0.025 rad/sample (approximately +/-199 Hz) |
 | Telemetry extraction | Retain j*Im(z) and translate by -5000 Hz |
 | Matched filter | Complex root-raised-cosine, roll-off 0.5, 31 taps at 50 kS/s |
+| Amplitude normalization | Mean-power normalization after RRC, before Costas; 0.25-second time constant, complete 250-sample segments; no analog AGC before PLL |
 | BPSK phase recovery | Order-2 Costas loop, bandwidth 0.005 rad/sample |
-| Symbol timing | Complex Mueller & Mueller; nominal omega 10, relative omega limit 0.005 |
+| Symbol timing | Complex Mueller & Mueller; nominal omega 10, gain_mu 0.02, gain_omega 0.000025, initial mu 0.5, relative omega limit 0.005 |
 | Decision | Real(symbol) >= 0 becomes one; otherwise zero |
 | Polarity | Search normal and complemented ASM; normalize the entire payload |
 | Differential decoding, Viterbi, Reed-Solomon, derandomization | None |

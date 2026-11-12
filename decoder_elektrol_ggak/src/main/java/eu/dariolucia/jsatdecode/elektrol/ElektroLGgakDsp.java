@@ -3,7 +3,6 @@ package eu.dariolucia.jsatdecode.elektrol;
 import eu.dariolucia.jsatdecode.decoder.base.dsp.ComplexDcBlocker;
 import ru.r2cloud.jradio.Context;
 import ru.r2cloud.jradio.FloatInput;
-import ru.r2cloud.jradio.blocks.AGC;
 import ru.r2cloud.jradio.blocks.ControlLoop;
 import ru.r2cloud.jradio.blocks.CostasLoop;
 import ru.r2cloud.jradio.blocks.FIRFilter;
@@ -19,7 +18,7 @@ import java.io.UncheckedIOException;
 /**
  * Single-owner, bounded streaming port of decoder_elektrol_ggak.grc. Translation to the input centre
  * belongs to the source. The optional DC blocker is the first decoder-owned operation. jradio
- * performs tap design, convolution, AGC, loop control, Costas and MMSE interpolation. The
+ * performs tap design, convolution, loop control, Costas and MMSE interpolation. The
  * M&M controller adapts the reference equations and its finite-stream lookahead explicitly.
  */
 final class ElektroLGgakDsp {
@@ -31,13 +30,13 @@ final class ElektroLGgakDsp {
     /** Optional setup-only qualification checkpoint sink; absent from the production path. */
     interface Trace { void sample(String stage, float i, float q); }
 
-    private static final float PLL_BANDWIDTH = .02f;
-    private static final float PLL_LIMIT = .5f;
+    private static final float PLL_BANDWIDTH = .002f;
+    private static final float PLL_LIMIT = .025f;
     private final ComplexDcBlocker dcBlocker;
     private final DecimatingFir channel, timing, matched;
-    private final ComplexInput agcInput = new ComplexInput();
+    private final GgakCarrierAcquisition acquisition = new GgakCarrierAcquisition();
+    private final GgakPowerNormalizer normalizer = new GgakPowerNormalizer();
     private final ComplexInput costasInput = new ComplexInput();
-    private final AGC agc = new AGC(agcInput, .01f, 1f, 1f, 65536f);
     private final ControlLoop carrier = new ControlLoop(PLL_BANDWIDTH, PLL_LIMIT, -PLL_LIMIT);
     private final CostasLoop costas = new CostasLoop(costasInput, .005f, 2, false);
     private final TimingInput timingInput = new TimingInput();
@@ -52,7 +51,7 @@ final class ElektroLGgakDsp {
     private double pmPhase;
 
     // Primitive stage checkpoints are package-visible to independent qualification harnesses.
-    float channelI, channelQ, timingI, timingQ, agcI, agcQ, pllI, pllQ, pmI, pmQ, rrcI, rrcQ;
+    float channelI, channelQ, timingI, timingQ, pllI, pllQ, pmI, pmQ, rrcI, rrcQ;
     long channelSamples, timingSamples, symbols;
 
     ElektroLGgakDsp(ElektroLGgakSettings settings, Output output) {
@@ -64,7 +63,7 @@ final class ElektroLGgakDsp {
         this.trace = trace;
         dcBlocker = new ComplexDcBlocker(settings.dcblocker(), settings.dcBlockerLength());
         channel = new DecimatingFir(
-                Firdes.lowPass(1, settings.sampleRateHz(), 40000, 15000, Window.WIN_HAMMING, 6.76),
+                Firdes.lowPass(1, settings.sampleRateHz(), 60000, 20000, Window.WIN_HAMMING, 6.76),
                 settings.channelDecimation());
         timing = new DecimatingFir(
                 Firdes.lowPass(1, settings.channelRate(), 20000, 4000, Window.WIN_HAMMING, 6.76), 5);
@@ -79,23 +78,20 @@ final class ElektroLGgakDsp {
         channelQ = channel.value[1];
         channelSamples++;
         if (trace != null) trace.sample("channel", channelI, channelQ);
-        if (!timing.add(channelI, channelQ)) return;
+        acquisition.sample(channelI, channelQ);
+        if (trace != null) trace.sample("afc", acquisition.i, acquisition.q);
+        if (!timing.add(acquisition.i, acquisition.q)) return;
         timingI = timing.value[0];
         timingQ = timing.value[1];
         timingSamples++;
         if (trace != null) trace.sample("timing", timingI, timingQ);
         try {
-            agcInput.set(timingI, timingQ);
-            agcI = agc.readFloat();
-            agcQ = agc.readFloat();
-            if (trace != null) trace.sample("agc", agcI, agcQ);
-
             // Carrier PLL output uses the old phase; update control only after producing it.
             float phase = carrier.getPhase();
             float cosine = (float) Math.cos(phase), sine = (float) Math.sin(phase);
-            pllI = agcI * cosine + agcQ * sine;
-            pllQ = -agcI * sine + agcQ * cosine;
-            float error = MathUtils.fastAtan(agcQ, agcI) - phase;
+            pllI = timingI * cosine + timingQ * sine;
+            pllQ = -timingI * sine + timingQ * cosine;
+            float error = MathUtils.fastAtan(timingQ, timingI) - phase;
             if (error > Math.PI) error -= (float) (2 * Math.PI);
             else if (error < -Math.PI) error += (float) (2 * Math.PI);
             carrier.advanceLoop(error);
@@ -111,14 +107,18 @@ final class ElektroLGgakDsp {
             rrcI = matched.value[0];
             rrcQ = matched.value[1];
             if (trace != null) trace.sample("rrc", rrcI, rrcQ);
-            costasInput.set(rrcI, rrcQ);
-            float i = costas.readFloat(), q = costas.readFloat();
-            if (!Float.isFinite(i) || !Float.isFinite(q))
-                throw new IllegalArgumentException("Elektro-L GGAK DSP amplitude overflow");
-            output.baseband(i, q);
-            if (trace != null) trace.sample("costas", i, q);
-
-            timingSample(i, q);
+            if (normalizer.add(rrcI, rrcQ)) {
+                for (int n = 0; n < GgakPowerNormalizer.SEGMENT; n++) {
+                    if (trace != null) trace.sample("norm", normalizer.i[n], normalizer.q[n]);
+                    costasInput.set(normalizer.i[n], normalizer.q[n]);
+                    float i = costas.readFloat(), q = costas.readFloat();
+                    if (!Float.isFinite(i) || !Float.isFinite(q))
+                        throw new IllegalArgumentException("Elektro-L GGAK DSP amplitude overflow");
+                    output.baseband(i, q);
+                    if (trace != null) trace.sample("costas", i, q);
+                    timingSample(i, q);
+                }
+            }
         } catch (IOException e) {
             throw new UncheckedIOException("In-memory Elektro-L GGAK DSP failed", e);
         }
@@ -165,7 +165,7 @@ final class ElektroLGgakDsp {
         float error = MathUtils.branchlessClip(y - x, 1f);
         omega += .000025f * error;
         omega = 10f + MathUtils.branchlessClip(omega - 10f, 10f * .005f);
-        mu = mu + omega + .01f * error;
+        mu = mu + omega + .02f * error;
         int advance = (int) Math.floor(mu);
         mu -= (float) Math.floor(mu);
         if (advance < 1) throw new IllegalStateException("Elektro-L GGAK timing advance became nonpositive");

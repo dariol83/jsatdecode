@@ -1,7 +1,9 @@
 # Elektro-L GGAK decoder
 
 Independent Java 21 JSatDecode module, factory ID `elektrol_ggak`. The normative
-DSP reference is [decoder_elektrol_ggak.grc](grc/decoder_elektrol_ggak.grc). Output consists of
+DSP reference is [decoder_elektrol_ggak.grc](grc/decoder_elektrol_ggak.grc), receiver v1.5.
+The receiver uses blind carrier acquisition/AFC, a narrow residual-carrier PLL
+and power normalization before BPSK recovery. Output consists of
 220-byte, polarity-normalized GGAK frames with the ASM removed. Only frames
 passing the reference's 16-bit additive checksum are distributed; both transmitted
 checksum bytes are retained. Checksum failures are counted in `frame.bad`.
@@ -25,9 +27,11 @@ Use `:` instead of `;` as the path separator on Linux/macOS. The build copies
 runtime dependencies to `target/lib`; the framework discovers the decoder
 through its JPMS service declaration. Classpath launches remain supported.
 
-Edit the WAV filename before running. The Pluto example uses a 1693.250 MHz LO,
+Edit the WAV filename before running. The [CS16 example](examples/elektrol-ggak-cs16.properties)
+replays little-endian signed 16-bit IQ at 1 MS/s without pacing, with the signal
+already centred and DC removal bypassed. The Pluto example uses a 1693.250 MHz LO,
 4 MS/s PHY rate, FPGA decimation 4, and a +250 kHz source rotation. The decoder
 receives 1 MS/s. Ensure the delivered source rate equals `decoder.sample_rate_hz`.
 
 See [receiver details](docs/receiver.md), [verification](docs/qualification.md),
-and the two [example configurations](examples).
+and the [example configurations](examples).

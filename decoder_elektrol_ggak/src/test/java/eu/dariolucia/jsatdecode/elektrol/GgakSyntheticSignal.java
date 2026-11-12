@@ -34,7 +34,8 @@ final class GgakSyntheticSignal {
     }
 
     static int[] bits(byte[]... payloads) {
-        int[] result = new int[PREAMBLE_BITS + 1792 * payloads.length + 1000];
+        // Real transmitted tail carries the last frame through the v1.5 AFC delay.
+        int[] result = new int[PREAMBLE_BITS + 1792 * payloads.length + 4096];
         Random random = new Random(0x5000);
         for (int n = 0; n < result.length; n++) result[n] = random.nextBoolean() ? 1 : 0;
         int p = PREAMBLE_BITS;

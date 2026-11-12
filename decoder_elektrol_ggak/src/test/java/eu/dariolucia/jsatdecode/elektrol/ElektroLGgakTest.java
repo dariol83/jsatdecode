@@ -33,6 +33,7 @@ public final class ElektroLGgakTest {
         configuration();
         dcblocker();
         framing();
+        checks += ElektroLGgakAcquisitionTest.run();
         synthetic();
         failures();
         checks += ElektroLGgakEdgeTest.run();
@@ -256,12 +257,18 @@ public final class ElektroLGgakTest {
     private static void examples() throws Exception {
         Path module = Path.of("decoder_elektrol_ggak");
         if (!Files.isDirectory(module)) module = Path.of(".");
-        for (String name : new String[] {"elektrol-ggak-wav.properties", "elektrol-ggak-pluto.properties"}) {
+        for (String name : new String[] {"elektrol-ggak-wav.properties", "elektrol-ggak-pluto.properties",
+                "elektrol-ggak-cs16.properties"}) {
             var c = ConfigurationLoader.load(Map.of(), module.resolve("examples").resolve(name), Map.of(), Map.of());
             try (var decoder = new ElektroLGgakDecoder(c.getSection("decoder"))) {
                 check(decoder.state() == ComponentState.CONFIGURED, "Runtime-shaped example " + name);
             }
-            check(c.getDouble("source.output_frequency_offset") == 250000, "Positive source translation");
+            if (name.equals("elektrol-ggak-cs16.properties")) {
+                check(c.getString("source.type").equals("cs16"), "Recording example selects CS16");
+                check(c.getDouble("source.output_frequency_offset") == 0, "Centered recording needs no source translation");
+                check(!c.getBoolean("decoder.dcblocker"), "Recording example preserves the GRC residual carrier");
+                check(!c.getBoolean("source.realtime"), "Recording example processes without realtime pacing");
+            } else check(c.getDouble("source.output_frequency_offset") == 250000, "Positive source translation");
         }
         // Exercise the WAV example through actual ServiceLoader/runtime/distribution and EOF.
         Files.createDirectories(module.resolve("target"));

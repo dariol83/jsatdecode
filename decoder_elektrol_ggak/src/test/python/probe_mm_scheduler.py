@@ -29,7 +29,7 @@ def main():
                 source = blocks.file_source(gr.sizeof_gr_complex, str(args.costas), False)
             else:
                 source = blocks.vector_source_c(samples, False)
-            mm = digital.clock_recovery_mm_cc(10., .000025, .5, .01, .005)
+            mm = digital.clock_recovery_mm_cc(10., .000025, .5, .02, .005)
             mm.set_max_noutput_items(batch)
             sink = blocks.vector_sink_c()
             tb.connect(source, mm, sink)
@@ -53,7 +53,7 @@ def main():
     for length in range(20, 71):
         tb = gr.top_block("M&M forecast boundary probe")
         source = blocks.vector_source_c([0j] * length, False)
-        mm = digital.clock_recovery_mm_cc(10., .000025, .5, .01, .005)
+        mm = digital.clock_recovery_mm_cc(10., .000025, .5, .02, .005)
         mm.set_max_noutput_items(4096)
         sink = blocks.vector_sink_c()
         tb.connect(source, mm, sink)
@@ -77,7 +77,7 @@ def main():
                 # head(0) supplies an actual empty stream without a zero-length vector source.
                 source = blocks.vector_source_c(values[:max(length, 1)], False)
                 head = blocks.head(gr.sizeof_gr_complex, length)
-                mm = digital.clock_recovery_mm_cc(10., .000025, .5, .01, .005)
+                mm = digital.clock_recovery_mm_cc(10., .000025, .5, .02, .005)
                 mm.set_max_noutput_items(batch)
                 sink = blocks.vector_sink_c()
                 tb.connect(source, head, mm, sink)

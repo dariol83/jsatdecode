@@ -183,8 +183,10 @@ final class ElektroLGgakEdgeTest {
             int begin = GgakSyntheticSignal.PREAMBLE_BITS + 1792 * frame;
             for (int n = begin; n < begin + 1792; n++) bits[n] ^= 1;
         }
-        // Preserve fourteen complete candidates, then terminate halfway through the fifteenth.
-        bits = Arrays.copyOf(bits, GgakSyntheticSignal.PREAMBLE_BITS + 14 * 1792 + 32 + 900);
+        // At the decoder output preserve fourteen complete candidates, then terminate halfway
+        // through the fifteenth. The genuine input includes the AFC's delayed signal tail.
+        int delayBits = (GgakCarrierAcquisition.DELAY + SAMPLES_PER_BIT - 1) / SAMPLES_PER_BIT;
+        bits = Arrays.copyOf(bits, GgakSyntheticSignal.PREAMBLE_BITS + 14 * 1792 + 32 + 900 + delayBits);
         List<AnnotatedFrame> frames = new ArrayList<>();
         try (var decoder = decoder()) {
             decoder.setFrameSink(frames::add);

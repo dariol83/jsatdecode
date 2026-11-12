@@ -2,7 +2,10 @@
 
 This optional qualification tool requires GNU Radio 3.10.12, NumPy, SciPy and
 PyYAML; it is independent of the Java build and decoder implementation. The
-embedded PM conversion and deframer are loaded directly from the GRC file.
+embedded AFC analysis, PM conversion, power normalization and deframer are
+loaded directly from the GRC file. The AFC estimate changes at fixed FFT
+boundaries and normalization uses complete 250-sample segments, independent
+of GNU Radio's work-buffer partition. Neither buffered stage drains at EOF.
 All generated binary artifacts belong under target/reference and are disposable.
 
 Windows radioconda example (PowerShell, from the repository root)::
@@ -58,6 +61,83 @@ def embedded_block(blocks_by_name, name):
     return namespace["blk"]
 
 
+def canonical_afc(grc_blocks):
+    """Run unchanged GRC AFC analysis on an explicit channel sample clock.
+
+    The embedded work() analyses a complete scheduler buffer before mixing
+    it. Its estimate-change position therefore depends on work-buffer sizes.
+    This qualification fixes the decision to the Nth input sample: analyse
+    that sample before mixing its delayed output. The FFT, averaging, scoring,
+    acceptance gate, delay and phase-continuous mixing equations are unchanged.
+    """
+    reference = embedded_block(grc_blocks, "epy_block_afc")
+
+    class SampleClockAfc(reference):
+        def _mix(self, samples, destination):
+            if self._f is None:
+                destination[:] = 0
+                return
+            inc = -2.0 * np.pi * self._f / self.fs
+            phases = self._phase + inc * np.arange(len(samples), dtype=np.float64)
+            destination[:] = (samples * np.exp(1j * phases)).astype(np.complex64)
+            self._phase = float((self._phase + inc * len(samples)) % (2.0 * np.pi))
+
+        def work(self, input_items, output_items):
+            samples, destination = input_items[0], output_items[0]
+            count = len(samples)
+            self._delay = np.concatenate((self._delay, samples))
+            delayed = self._delay[:count]
+            self._delay = self._delay[count:]
+            first = 0
+            while first < count:
+                take = min(self.nfft - len(self._pend), count - first)
+                self._pend = np.concatenate((self._pend, samples[first:first + take]))
+                if len(self._pend) == self.nfft:
+                    # Only the boundary sample uses the estimate just acquired.
+                    self._mix(delayed[first:first + take - 1], destination[first:first + take - 1])
+                    self._analyse(self._pend)
+                    self._pend = np.zeros(0, np.complex64)
+                    self._mix(delayed[first + take - 1:first + take],
+                              destination[first + take - 1:first + take])
+                else:
+                    self._mix(delayed[first:first + take], destination[first:first + take])
+                first += take
+            return count
+
+    return SampleClockAfc(CHANNEL_RATE, 65536, 2, 8, 30000., SYMBOL_RATE, 12., 40.)
+
+
+def canonical_normalizer(grc_blocks):
+    """Apply the embedded power equations to complete 250-sample segments.
+
+    Scheduler work calls may end between segments in the original GRC. The
+    canonical port buffers a complete segment before emitting it; an incomplete
+    terminal segment is retained and never padded or flushed.
+    """
+    reference = embedded_block(grc_blocks, "epy_block_norm")
+
+    class SegmentedNormalizer(gr.basic_block):
+        def __init__(self):
+            gr.basic_block.__init__(self, name="GGAK fixed-segment reference power normalizer",
+                                   in_sig=[np.complex64], out_sig=[np.complex64])
+            self.reference = reference(TIMING_RATE, .25, 250)
+            self.set_output_multiple(250)
+
+        def forecast(self, noutput_items, ninputs):
+            return [250] * ninputs
+
+        def general_work(self, input_items, output_items):
+            samples, destination = input_items[0], output_items[0]
+            count = min(len(samples), len(destination)) // 250 * 250
+            for first in range(0, count, 250):
+                self.reference.work([samples[first:first + 250]],
+                                    [destination[first:first + 250]])
+            self.consume(0, count)
+            return count
+
+    return SegmentedNormalizer()
+
+
 def create_signal(destination, rate, frame_count, preamble_bits, seed, noise, carrier_offset,
                   corrupt_frame_indices):
     """Independent shaped BPSK subcarrier, phase modulating a residual carrier.
@@ -80,8 +160,11 @@ def create_signal(destination, rate, frame_count, preamble_bits, seed, noise, ca
         payloads.append(bytes(payload))
     transmitted = b"".join(ASM + payload for payload in payloads)
     preamble = rng.integers(0, 2, preamble_bits, dtype=np.uint8)
+    # Real transmitted tail carries the last frame through the .524288 s AFC
+    # delay and the finite FIR/normalizer/timing lookahead; no receiver EOF drain.
+    tail_bits = 4096
     bits = np.concatenate((preamble, np.unpackbits(np.frombuffer(transmitted, dtype=np.uint8)),
-                           rng.integers(0, 2, 128, dtype=np.uint8)))
+                           rng.integers(0, 2, tail_bits, dtype=np.uint8)))
     symbols = 2.0 * bits.astype(np.float64) - 1.0
     tx_taps = np.asarray(firdes.root_raised_cosine(10., TIMING_RATE, SYMBOL_RATE, .5, 101))
     shaped = upfirdn(tx_taps, symbols, up=10)
@@ -106,7 +189,7 @@ def create_signal(destination, rate, frame_count, preamble_bits, seed, noise, ca
             "expected_accepted_frames": frame_count - len(corrupt_frame_indices),
             "expected_rejected_frames": len(corrupt_frame_indices),
             "corrupt_frame_indices": sorted(corrupt_frame_indices),
-            "preamble_bits": preamble_bits, "seed": seed, "noise_rms": noise,
+            "preamble_bits": preamble_bits, "tail_bits": tail_bits, "seed": seed, "noise_rms": noise,
             "modulation_index_radians": .8, "carrier_offset_hz": carrier_offset,
             "transmit_rrc_taps": len(tx_taps),
             "payload_sha256": hashlib.sha256(accepted).hexdigest(),
@@ -116,22 +199,23 @@ def create_signal(destination, rate, frame_count, preamble_bits, seed, noise, ca
 def run_reference(destination, rate, grc_blocks):
     if rate % CHANNEL_RATE:
         raise ValueError("Qualification rates must be integer multiples of 250000 Hz")
-    channel_taps = firdes.low_pass(1., rate, 40000., 15000., window.WIN_HAMMING)
+    channel_taps = firdes.low_pass(1., rate, 60000., 20000., window.WIN_HAMMING)
     timing_taps = firdes.low_pass(1., CHANNEL_RATE, 20000., 4000., window.WIN_HAMMING)
     rrc_taps = firdes.root_raised_cosine(1., TIMING_RATE, SYMBOL_RATE, .5, 31)
     for name, taps in (("channel", channel_taps), ("timing", timing_taps), ("rrc", rrc_taps)):
         np.asarray(taps, dtype="<f4").tofile(destination / ("taps_" + name + ".f32"))
-    tb = gr.top_block("Elektro-L GGAK unchanged GRC DSP qualification")
+    tb = gr.top_block("Elektro-L GGAK v1.5 fixed-segment GRC DSP qualification")
     source = blocks.file_source(gr.sizeof_gr_complex, str(destination / "input.cf32"), False)
     stages = [
         ("channel", filter.freq_xlating_fir_filter_ccc(rate // CHANNEL_RATE, channel_taps, 0., rate)),
+        ("afc", canonical_afc(grc_blocks)),
         ("timing", filter.fir_filter_ccc(5, timing_taps)),
-        ("agc", analog.agc_cc(.01, 1., 1., 65536.)),
-        ("pll", analog.pll_carriertracking_cc(.02, .5, -.5)),
+        ("pll", analog.pll_carriertracking_cc(.002, .025, -.025)),
         ("pm", embedded_block(grc_blocks, "epy_block_pm")(TIMING_RATE, SYMBOL_RATE)),
         ("rrc", filter.fir_filter_ccc(1, rrc_taps)),
+        ("norm", canonical_normalizer(grc_blocks)),
         ("costas", digital.costas_loop_cc(.005, 2, False)),
-        ("symbols", digital.clock_recovery_mm_cc(10., .000025, .5, .01, .005)),
+        ("symbols", digital.clock_recovery_mm_cc(10., .000025, .5, .02, .005)),
     ]
     deframer = embedded_block(grc_blocks, "epy_block_0")(1792, 2, 4, str(destination / "frames.bin"))
     previous = source
@@ -163,6 +247,7 @@ def run_reference(destination, rate, grc_blocks):
     if deframer.frames != len(frames) or deframer.rejected_frames != expected_rejected:
         raise AssertionError("GRC checksum candidate accounting differs from transmitted truth")
     return {"wall_seconds": elapsed, "recovered_frames": len(frames),
+            "scheduler_policy": "AFC analysis before mixing each Nth channel sample; complete 250-sample power segments; no EOF drain",
             "rejected_frames": deframer.rejected_frames,
             "classified_candidates": deframer.frames + deframer.rejected_frames,
             "recovered_frame_indices": matched,

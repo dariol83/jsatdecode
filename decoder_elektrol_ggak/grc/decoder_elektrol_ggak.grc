@@ -4,12 +4,12 @@ options:
     catch_exceptions: 'True'
     category: Satellite
     cmake_opt: ''
-    comment: 'Elektro-L 5 GGAK diagnostic receiver v1.4. PM demodulation now follows the current SatDump PMDemodModule
-      architecture: resample to 10 sps, AGC, carrier PLL, PMToBPSK imag-only + -symbolrate shift, complex RRC, order-2
-      Costas, M&M clock recovery.'
+    comment: 'Elektro-L 5 GGAK diagnostic receiver v1.5. v1.5 changes vs v1.4: (1) blind carrier acquisition/AFC from the
+      2*fc line of x^2 (data independent) instead of relying on the carrier PLL to find the residual carrier; (2) carrier
+      PLL narrowed 0.02 -> 0.002 rad/sample, +/-200 Hz; (3) analog AGC replaced by a level-independent power normaliser placed
+      before Costas/M&M; (4) M&M gain_mu 0.01 -> 0.02. File source (cs16) added; Pluto source kept but disabled.'
     copyright: ''
-    description: Elektro-L 5 GGAK 1693 MHz, 5 ksym/s PM/BPSK, SatDump-equivalent PM demod, CCSDS ASM 1ACFFC1D, 1792-bit
-      CADU
+    description: Elektro-L 5 GGAK 1693 MHz, 5 ksym/s PM/BPSK, blind-AFC PM demod, CCSDS ASM 1ACFFC1D, 1792-bit CADU
     gen_cmake: 'On'
     gen_linking: dynamic
     generate_options: qt_gui
@@ -25,7 +25,7 @@ options:
     run_options: run
     sizing_mode: fixed
     thread_safe_setters: ''
-    title: Elektro-L 5 GGAK Decoder
+    title: Elektro-L 5 GGAK Decoder v1.5
     window_size: (1280,900)
   states:
     bus_sink: false
@@ -97,8 +97,8 @@ blocks:
 - name: samp_rate
   id: variable
   parameters:
-    comment: Pluto hardware sample rate
-    value: '2000000'
+    comment: 'Input sample rate: 1 MS/s for the SatDump cs16 recording, 2 MS/s Pluto. Any integer multiple of 250 kS/s works.'
+    value: 1000000 if use_file else 2000000
   states:
     bus_sink: false
     bus_source: false
@@ -111,8 +111,8 @@ blocks:
 - name: decimation
   id: variable
   parameters:
-    comment: Channel-filter decimation
-    value: '8'
+    comment: Channel-filter decimation to 250 kS/s
+    value: int(round(samp_rate/250000.0))
   states:
     bus_sink: false
     bus_source: false
@@ -229,20 +229,21 @@ blocks:
     - 24
     - 288
     rotation: 0
-    state: enabled
+    state: disabled
 - name: freq_xlating_fir_filter_xxx_0
   id: freq_xlating_fir_filter_xxx
   parameters:
     affinity: ''
     alias: ''
-    center_freq: -lo_offset_hz
-    comment: Channelize GGAK from +250 kHz to DC and decimate 2 MS/s -> 250 kS/s. Spectrum widget taps here.
+    center_freq: channel_offset_hz
+    comment: Channelize GGAK to DC and decimate to 250 kS/s. 60 kHz cutoff so the blind AFC can find carrier offsets up to
+      +/-30 kHz. Spectrum widget taps here.
     decim: decimation
     maxoutbuf: '0'
     minoutbuf: '0'
     samp_delay: '0'
     samp_rate: samp_rate
-    taps: firdes.low_pass(1.0, samp_rate, 40000, 15000, window.WIN_HAMMING)
+    taps: firdes.low_pass(1.0, samp_rate, 60000, 20000, window.WIN_HAMMING)
     type: ccc
   states:
     bus_sink: false
@@ -363,8 +364,8 @@ blocks:
     color7: '"yellow"'
     color8: '"dark red"'
     color9: '"dark green"'
-    comment: Direct complex output of Costas + M&M recovery. Correct BPSK should form two compact clusters near
-      +/-I, with small Q spread.
+    comment: Direct complex output of Costas + M&M recovery. Correct BPSK should form two compact clusters near +/-I, with
+      small Q spread.
     grid: 'True'
     gui_hint: 0,1,1,1
     label1: Recovered BPSK symbols
@@ -436,8 +437,7 @@ blocks:
   parameters:
     affinity: ''
     alias: ''
-    comment: 'SatDump-style pre-demod resampling stage: anti-alias LPF + x5 decimation, 250 kS/s -> 50 kS/s (10
-      samples/symbol).'
+    comment: 'SatDump-style pre-demod resampling stage: anti-alias LPF + x5 decimation, 250 kS/s -> 50 kS/s (10 samples/symbol).'
     decim: timing_decimation
     gain: '1'
     interp: '1'
@@ -455,39 +455,18 @@ blocks:
     - 288
     rotation: 0
     state: enabled
-- name: analog_agc_xx_0
-  id: analog_agc_xx
-  parameters:
-    affinity: ''
-    alias: ''
-    comment: 'Equivalent to SatDump BaseDemodModule AGC defaults: rate=1e-2, reference=1, initial gain=1, max gain=65536.'
-    gain: '1.0'
-    max_gain: '65536'
-    maxoutbuf: '0'
-    minoutbuf: '0'
-    rate: 1e-2
-    reference: '1.0'
-    type: complex
-  states:
-    bus_sink: false
-    bus_source: false
-    bus_structure: null
-    coordinate:
-    - 848
-    - 288
-    rotation: 0
-    state: enabled
 - name: analog_pll_carriertracking_cc_0
   id: analog_pll_carriertracking_cc
   parameters:
     affinity: ''
     alias: ''
-    comment: Carrier PLL. Uses Elektro GGAK SatDump pll_bw=0.02 and PMDemod default max offset +/-0.5 rad/sample.
-    max_freq: '0.5'
+    comment: Narrow carrier PLL (0.002 rad/sample, +/-200 Hz = +/-0.025 rad/sample). Coarse acquisition is done by the AFC
+      block; a wide loop only adds phase noise on the weak residual carrier.
+    max_freq: '0.025'
     maxoutbuf: '0'
-    min_freq: '-0.5'
+    min_freq: '-0.025'
     minoutbuf: '0'
-    w: '0.02'
+    w: '0.002'
   states:
     bus_sink: false
     bus_source: false
@@ -502,18 +481,16 @@ blocks:
   parameters:
     sample_rate: timing_rate
     symbol_rate: symbol_rate
-    _source_code: "import numpy as np\nfrom gnuradio import gr\n\nclass blk(gr.sync_block):\n    \"\"\"SatDump PMToBPSK\
-      \ equivalent.\n\n    For each PLL output sample, discard I and keep only j*Q, then rotate\n    continuously\
-      \ by -symbol_rate. This mirrors SatDump's PMToBPSK block.\n    Input/output are complex64.\n    \"\"\"\n \
-      \   def __init__(self, sample_rate=50000, symbol_rate=5000):\n        gr.sync_block.__init__(self, name='PMToBPSK\
-      \ (SatDump equivalent)',\n                              in_sig=[np.complex64], out_sig=[np.complex64])\n \
-      \       self.sample_rate = float(sample_rate)\n        self.symbol_rate = float(symbol_rate)\n        self.phase\
-      \ = 0.0\n        self.phase_inc = -2.0*np.pi*self.symbol_rate/self.sample_rate\n\n    def work(self, input_items,\
-      \ output_items):\n        x = input_items[0]\n        n = len(x)\n        if n == 0:\n            return 0\n\
-      \        idx = np.arange(n, dtype=np.float64)\n        ph = self.phase + self.phase_inc*idx\n        rot =\
-      \ np.exp(1j*ph)\n        y = (1j*x.imag.astype(np.float64))*rot\n        output_items[0][:n] = y.astype(np.complex64)\n\
-      \        self.phase = float((self.phase + self.phase_inc*n + np.pi) % (2.0*np.pi) - np.pi)\n        return\
-      \ n\n"
+    _source_code: "import numpy as np\nfrom gnuradio import gr\n\nclass blk(gr.sync_block):\n    \"\"\"SatDump PMToBPSK equivalent.\n\
+      \n    For each PLL output sample, discard I and keep only j*Q, then rotate\n    continuously by -symbol_rate. This mirrors\
+      \ SatDump's PMToBPSK block.\n    Input/output are complex64.\n    \"\"\"\n    def __init__(self, sample_rate=50000,\
+      \ symbol_rate=5000):\n        gr.sync_block.__init__(self, name='PMToBPSK (SatDump equivalent)',\n                 \
+      \             in_sig=[np.complex64], out_sig=[np.complex64])\n        self.sample_rate = float(sample_rate)\n      \
+      \  self.symbol_rate = float(symbol_rate)\n        self.phase = 0.0\n        self.phase_inc = -2.0*np.pi*self.symbol_rate/self.sample_rate\n\
+      \n    def work(self, input_items, output_items):\n        x = input_items[0]\n        n = len(x)\n        if n == 0:\n\
+      \            return 0\n        idx = np.arange(n, dtype=np.float64)\n        ph = self.phase + self.phase_inc*idx\n\
+      \        rot = np.exp(1j*ph)\n        y = (1j*x.imag.astype(np.float64))*rot\n        output_items[0][:n] = y.astype(np.complex64)\n\
+      \        self.phase = float((self.phase + self.phase_inc*n + np.pi) % (2.0*np.pi) - np.pi)\n        return n\n"
     affinity: ''
     alias: ''
     comment: 'Exact functional equivalent of current SatDump PMToBPSK: x -> j*imag(x), then NCO shift by -symbol_rate.'
@@ -591,8 +568,8 @@ blocks:
   parameters:
     affinity: ''
     alias: ''
-    comment: M&M timing recovery matching SatDump PMDemod defaults. Outputs one complex sample per recovered symbol.
-    gain_mu: '0.01'
+    comment: M&M timing recovery. gain_mu 0.02 (was 0.01); input amplitude now normalised so the loop gains are as designed.
+    gain_mu: '0.02'
     gain_omega: pow(0.01,2)/4.0
     maxoutbuf: '0'
     minoutbuf: '0'
@@ -616,52 +593,48 @@ blocks:
     search_errors: '2'
     locked_errors: '4'
     output_file: '"ggak_frames.bin"'
-    _source_code: "import numpy as np\nimport time\nfrom gnuradio import gr\nimport pmt\n\nASM = 0x1ACFFC1D\nASM_BITS\
-      \ = np.array([(ASM >> (31-i)) & 1 for i in range(32)], dtype=np.uint8)\n\nclass blk(gr.sync_block):\n    \"\
-      \"\"Elektro-L 5 GGAK CCSDS ASM deframer.\n\n    Input: one recovered complex BPSK symbol per item (slice on\
-      \ real part).\n    Output 'frames': 220-byte GGAK frame, with 32-bit ASM removed\n    from the 224-byte /\
-      \ 1792-bit CADU. Both normal and inverted polarity\n    are accepted. Only frames passing the empirical additive\
-      \ checksum are\n    published and recorded; the checksum bytes are retained.\n    \"\"\"\n    def __init__(self,\
-      \ frame_bits=1792, search_errors=2, locked_errors=4, output_file='ggak_frames.bin'):\n        gr.sync_block.__init__(self,\
-      \ name='GGAK ASM deframer', in_sig=[np.complex64], out_sig=None)\n        self.message_port_register_out(pmt.intern('frames'))\n\
+    _source_code: "import numpy as np\nimport time\nfrom gnuradio import gr\nimport pmt\n\nASM = 0x1ACFFC1D\nASM_BITS = np.array([(ASM\
+      \ >> (31-i)) & 1 for i in range(32)], dtype=np.uint8)\n\nclass blk(gr.sync_block):\n    \"\"\"Elektro-L 5 GGAK CCSDS\
+      \ ASM deframer.\n\n    Input: one recovered complex BPSK symbol per item (slice on real part).\n    Output 'frames':\
+      \ 220-byte GGAK frame, with 32-bit ASM removed\n    from the 224-byte / 1792-bit CADU. Both normal and inverted polarity\n\
+      \    are accepted. Only frames passing the empirical additive checksum are\n    published and recorded; the checksum\
+      \ bytes are retained.\n    \"\"\"\n    def __init__(self, frame_bits=1792, search_errors=2, locked_errors=4, output_file='ggak_frames.bin'):\n\
+      \        gr.sync_block.__init__(self, name='GGAK ASM deframer', in_sig=[np.complex64], out_sig=None)\n        self.message_port_register_out(pmt.intern('frames'))\n\
       \        self.frame_bits = int(frame_bits)\n        self.search_errors = int(search_errors)\n        self.locked_errors\
-      \ = int(locked_errors)\n        self._window = []\n        self._collect = None\n        self._invert = False\n\
-      \        self._locked = False\n        self._asm_errors = 0\n        self.frames = 0\n        self.rejected_frames\
-      \ = 0\n        if self.frame_bits != 1792:\n            raise ValueError(\"GGAK checksum requires 1792-bit\
-      \ CADUs (220-byte frames)\")\n        self.output_file = str(output_file)\n        self._fh = open(self.output_file,\
-      \ 'wb') if self.output_file else None\n        if self._fh is not None:\n            print('[GGAK] recording\
-      \ frames to %s' % self.output_file)\n\n    def _publish(self, bits):\n        packed = np.packbits(np.asarray(bits,\
-      \ dtype=np.uint8), bitorder='big').tobytes()\n        tm = packed[4:]\n        # Check canonical frame octets\
-      \ after polarity normalization and ASM removal.\n        expected = (sum(tm[:218]) + 0x0202) & 0xffff\n  \
-      \      received = (tm[218] << 8) | tm[219]\n        if expected != received:\n            self.rejected_frames\
-      \ += 1\n            print('[GGAK] checksum reject: expected=%04X received=%04X, valid=%d rejected=%d' %\n\
-      \                  (expected, received, self.frames, self.rejected_frames))\n            return\n        meta\
-      \ = pmt.make_dict()\n        meta = pmt.dict_add(meta, pmt.intern('checksum_valid'), pmt.PMT_T)\n        meta\
-      \ = pmt.dict_add(meta, pmt.intern('checksum'), pmt.from_long(received))\n        meta = pmt.dict_add(meta,\
-      \ pmt.intern('rx_time_ns'), pmt.from_long(time.time_ns()))\n        meta = pmt.dict_add(meta, pmt.intern('frame_type'),\
-      \ pmt.intern('GGAK'))\n        meta = pmt.dict_add(meta, pmt.intern('asm_errors'), pmt.from_long(self._asm_errors))\n\
-      \        meta = pmt.dict_add(meta, pmt.intern('cadu_length'), pmt.from_long(len(packed)))\n        self.message_port_pub(pmt.intern('frames'),\
-      \ pmt.cons(meta, pmt.init_u8vector(len(tm), list(tm))))\n        if self._fh is not None:\n            self._fh.write(tm)\n\
-      \            self._fh.flush()\n        self.frames += 1\n        print('[GGAK] frame %d: %d bytes GGAK frame,\
-      \ checksum=OK, ASM errors=%d, header=%s, rejected=%d' %\n              (self.frames, len(tm), self._asm_errors,\
-      \ tm[:8].hex(), self.rejected_frames))\n\n    def work(self, input_items, output_items):\n        for sample\
-      \ in input_items[0]:\n            bit = 1 if sample.real >= 0 else 0\n            if self._collect is not\
-      \ None:\n                self._collect.append(bit ^ int(self._invert))\n                if len(self._collect)\
-      \ >= self.frame_bits:\n                    bits = self._collect\n                    self._collect = None\n\
-      \                    self._publish(bits)\n                    self._locked = True\n                continue\n\
-      \            self._window.append(bit)\n            if len(self._window) > 32:\n                self._window.pop(0)\n\
-      \            if len(self._window) == 32:\n                w = np.asarray(self._window, dtype=np.uint8)\n \
-      \               e = int(np.count_nonzero(w != ASM_BITS))\n                ei = int(np.count_nonzero((1-w)\
-      \ != ASM_BITS))\n                threshold = self.locked_errors if self._locked else self.search_errors\n\
-      \                if min(e, ei) <= threshold:\n                    self._invert = ei < e\n                \
-      \    self._asm_errors = min(e, ei)\n                    self._collect = ASM_BITS.tolist()\n              \
-      \      self._window = []\n        return len(input_items[0])\n\n    def stop(self):\n        if self._fh is\
-      \ not None:\n            self._fh.flush()\n            self._fh.close()\n            self._fh = None\n   \
-      \     return True\n"
+      \ = int(locked_errors)\n        self._window = []\n        self._collect = None\n        self._invert = False\n    \
+      \    self._locked = False\n        self._asm_errors = 0\n        self.frames = 0\n        self.rejected_frames = 0\n\
+      \        if self.frame_bits != 1792:\n            raise ValueError(\"GGAK checksum requires 1792-bit CADUs (220-byte\
+      \ frames)\")\n        self.output_file = str(output_file)\n        self._fh = open(self.output_file, 'wb') if self.output_file\
+      \ else None\n        if self._fh is not None:\n            print('[GGAK] recording frames to %s' % self.output_file)\n\
+      \n    def _publish(self, bits):\n        packed = np.packbits(np.asarray(bits, dtype=np.uint8), bitorder='big').tobytes()\n\
+      \        tm = packed[4:]\n        # Check canonical frame octets after polarity normalization and ASM removal.\n   \
+      \     expected = (sum(tm[:218]) + 0x0202) & 0xffff\n        received = (tm[218] << 8) | tm[219]\n        if expected\
+      \ != received:\n            self.rejected_frames += 1\n            print('[GGAK] checksum reject: expected=%04X received=%04X,\
+      \ valid=%d rejected=%d' %\n                  (expected, received, self.frames, self.rejected_frames))\n            return\n\
+      \        meta = pmt.make_dict()\n        meta = pmt.dict_add(meta, pmt.intern('checksum_valid'), pmt.PMT_T)\n      \
+      \  meta = pmt.dict_add(meta, pmt.intern('checksum'), pmt.from_long(received))\n        meta = pmt.dict_add(meta, pmt.intern('rx_time_ns'),\
+      \ pmt.from_long(time.time_ns()))\n        meta = pmt.dict_add(meta, pmt.intern('frame_type'), pmt.intern('GGAK'))\n\
+      \        meta = pmt.dict_add(meta, pmt.intern('asm_errors'), pmt.from_long(self._asm_errors))\n        meta = pmt.dict_add(meta,\
+      \ pmt.intern('cadu_length'), pmt.from_long(len(packed)))\n        self.message_port_pub(pmt.intern('frames'), pmt.cons(meta,\
+      \ pmt.init_u8vector(len(tm), list(tm))))\n        if self._fh is not None:\n            self._fh.write(tm)\n       \
+      \     self._fh.flush()\n        self.frames += 1\n        print('[GGAK] frame %d: %d bytes GGAK frame, checksum=OK,\
+      \ ASM errors=%d, header=%s, rejected=%d' %\n              (self.frames, len(tm), self._asm_errors, tm[:8].hex(), self.rejected_frames))\n\
+      \n    def work(self, input_items, output_items):\n        for sample in input_items[0]:\n            bit = 1 if sample.real\
+      \ >= 0 else 0\n            if self._collect is not None:\n                self._collect.append(bit ^ int(self._invert))\n\
+      \                if len(self._collect) >= self.frame_bits:\n                    bits = self._collect\n             \
+      \       self._collect = None\n                    self._publish(bits)\n                    self._locked = True\n   \
+      \             continue\n            self._window.append(bit)\n            if len(self._window) > 32:\n             \
+      \   self._window.pop(0)\n            if len(self._window) == 32:\n                w = np.asarray(self._window, dtype=np.uint8)\n\
+      \                e = int(np.count_nonzero(w != ASM_BITS))\n                ei = int(np.count_nonzero((1-w) != ASM_BITS))\n\
+      \                threshold = self.locked_errors if self._locked else self.search_errors\n                if min(e, ei)\
+      \ <= threshold:\n                    self._invert = ei < e\n                    self._asm_errors = min(e, ei)\n    \
+      \                self._collect = ASM_BITS.tolist()\n                    self._window = []\n        return len(input_items[0])\n\
+      \n    def stop(self):\n        if self._fh is not None:\n            self._fh.flush()\n            self._fh.close()\n\
+      \            self._fh = None\n        return True\n"
     affinity: ''
     alias: ''
-    comment: "Emits and records only 220-byte GGAK frames passing additive checksum: (sum(frame[:218])+0x0202)&0xffff,\
-      \ big-endian bytes 218\u2013219."
+    comment: 'Emits and records only 220-byte GGAK frames passing additive checksum: (sum(frame[:218])+0x0202)&0xffff, big-endian
+      bytes 218–219.'
     maxoutbuf: '0'
     minoutbuf: '0'
   states:
@@ -708,7 +681,303 @@ blocks:
     - 520
     rotation: 0
     state: enabled
+- name: use_file
+  id: variable
+  parameters:
+    comment: 'True: decode the recording (file source). False: live Pluto.'
+    value: 'True'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 16
+    - 176
+    rotation: 0
+    state: enabled
+- name: channel_offset_hz
+  id: variable
+  parameters:
+    comment: Offset of GGAK in the input stream (0 for the recording; -lo_offset_hz for Pluto)
+    value: 0 if use_file else -lo_offset_hz
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 168
+    - 176
+    rotation: 0
+    state: enabled
+- name: input_file
+  id: variable
+  parameters:
+    comment: cs16 (interleaved int16 I/Q) recording
+    value: '"GGAK_1Msps_2026-11-09_19-05-52_1000000SPS_1693000000Hz.cs16"'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 360
+    - 176
+    rotation: 0
+    state: enabled
+- name: file_speed
+  id: variable
+  parameters:
+    comment: Playback speed-up vs real time (1 = real time)
+    value: '4'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 512
+    - 176
+    rotation: 0
+    state: enabled
+- name: blocks_file_source_0
+  id: blocks_file_source
+  parameters:
+    affinity: ''
+    alias: ''
+    begin_tag: pmt.PMT_NIL
+    comment: cs16 recording (interleaved int16 I,Q)
+    file: input_file
+    length: '0'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    offset: '0'
+    repeat: 'False'
+    type: short
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 24
+    - 400
+    rotation: 0
+    state: enabled
+- name: blocks_interleaved_short_to_complex_0
+  id: blocks_interleaved_short_to_complex
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: ''
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    scale_factor: '1.0'
+    swap: 'False'
+    vector_input: 'False'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 240
+    - 400
+    rotation: 0
+    state: enabled
+- name: blocks_multiply_const_vxx_0
+  id: blocks_multiply_const_vxx
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: int16 -> +/-1.0 float
+    const: 1.0/32768.0
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    type: complex
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 500
+    - 400
+    rotation: 0
+    state: enabled
+- name: blocks_throttle_0
+  id: blocks_throttle
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: ''
+    ignoretag: 'True'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    samples_per_second: samp_rate*file_speed
+    type: complex
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 720
+    - 400
+    rotation: 0
+    state: enabled
+- name: epy_block_afc
+  id: epy_block
+  parameters:
+    samp_rate: post_rate
+    nfft: '65536'
+    init_blocks: '2'
+    avg_blocks: '8'
+    search_hz: '30000.0'
+    sub_hz: symbol_rate
+    min_db: '12.0'
+    hyst_hz: '40.0'
+    _source_code: "import numpy as np\nfrom gnuradio import gr\n\n\nclass blk(gr.sync_block):\n    \"\"\"Blind carrier acquisition\
+      \ + coarse AFC for residual-carrier PM / BPSK-subcarrier signals.\n\n    Squaring a PM signal with a residual carrier\
+      \ produces a data-independent spectral\n    line at exactly 2*f_carrier (plus weaker lines at 2*f_carrier +/- 2*subcarrier).\n\
+      \    The block finds that line on a long-term averaged |FFT(x^2)|^2, mixes the carrier\n    to 0 Hz and hands the fine\
+      \ tracking to the narrow carrier PLL.\n\n    Output is the input delayed by init_blocks*nfft samples (zeros until the\
+      \ first\n    estimate exists), so no signal is lost while the carrier is being found.\n    The mixing frequency is only\
+      \ changed when the new estimate differs from the\n    current one by more than hyst_hz (the PLL follows slow drift by\
+      \ itself).\n    \"\"\"\n\n    def __init__(self, samp_rate=250000.0, nfft=65536, init_blocks=2, avg_blocks=8,\n    \
+      \             search_hz=30000.0, sub_hz=5000.0, min_db=12.0, hyst_hz=40.0):\n        gr.sync_block.__init__(self, name='PM\
+      \ carrier AFC',\n                               in_sig=[np.complex64], out_sig=[np.complex64])\n        self.fs = float(samp_rate)\n\
+      \        self.nfft = int(nfft)\n        self.init_blocks = int(init_blocks)\n        self.avg_blocks = int(avg_blocks)\n\
+      \        self.search_hz = float(search_hz)\n        self.sub_hz = float(sub_hz)\n        self.min_db = float(min_db)\n\
+      \        self.hyst_hz = float(hyst_hz)\n        self._win = np.hanning(self.nfft)\n        self._bins = np.fft.fftfreq(self.nfft,\
+      \ 1.0 / self.fs)\n        self._mask = np.flatnonzero(np.abs(self._bins) <= 2.0 * self.search_hz)\n        self._hist\
+      \ = []\n        self._pend = np.zeros(0, np.complex64)\n        self._delay = np.zeros(self.init_blocks * self.nfft,\
+      \ np.complex64)\n        self._f = None          # current mixing frequency [Hz]\n        self._phase = 0.0\n      \
+      \  self.last_db = 0.0\n        self.estimates = 0\n\n    def _estimate(self):\n        P = np.mean(self._hist, axis=0)\n\
+      \        n = self.nfft\n        d = int(round(2.0 * self.sub_hz * n / self.fs))\n        S = P + 0.5 * (np.roll(P, d)\
+      \ + np.roll(P, -d))   # line at 2fc and its +/-2*sub partners\n        k = self._mask[np.argmax(S[self._mask])]\n  \
+      \      a, b, c = np.log(S[k - 1] + 1e-300), np.log(S[k] + 1e-300), np.log(S[(k + 1) % n] + 1e-300)\n        den = a\
+      \ - 2.0 * b + c\n        dl = 0.5 * (a - c) / den if den != 0 else 0.0\n        f2c = self._bins[k] + dl * self.fs /\
+      \ n\n        db = 10.0 * np.log10((P[k] + 1e-300) / (np.median(P) + 1e-300))\n        return 0.5 * f2c, db\n\n    def\
+      \ _analyse(self, blk):\n        y = (blk.astype(np.complex128) ** 2) * self._win\n        self._hist.append(np.abs(np.fft.fft(y))\
+      \ ** 2)\n        if len(self._hist) > self.avg_blocks:\n            self._hist.pop(0)\n        if len(self._hist) <\
+      \ self.init_blocks:\n            return\n        f, db = self._estimate()\n        self.last_db = db\n        if db\
+      \ >= self.min_db and (self._f is None or abs(f - self._f) > self.hyst_hz):\n            self._f = f\n            self.estimates\
+      \ += 1\n            print('[AFC] carrier %.1f Hz (line %.1f dB above floor)' % (f, db))\n\n    def work(self, input_items,\
+      \ output_items):\n        x = input_items[0]\n        n = len(x)\n        self._pend = np.concatenate([self._pend, x])\n\
+      \        while len(self._pend) >= self.nfft:\n            self._analyse(self._pend[:self.nfft])\n            self._pend\
+      \ = self._pend[self.nfft:]\n        self._delay = np.concatenate([self._delay, x])\n        src = self._delay[:n]\n\
+      \        self._delay = self._delay[n:]\n        if self._f is None:\n            output_items[0][:n] = 0\n         \
+      \   return n\n        inc = -2.0 * np.pi * self._f / self.fs\n        ph = self._phase + inc * np.arange(n, dtype=np.float64)\n\
+      \        output_items[0][:n] = (src * np.exp(1j * ph)).astype(np.complex64)\n        self._phase = float((self._phase\
+      \ + inc * n) % (2.0 * np.pi))\n        return n\n"
+    affinity: ''
+    alias: ''
+    comment: 'Blind carrier acquisition: finds the data-independent line at 2*fc in |FFT(x^2)|^2, mixes the residual carrier
+      to 0 Hz. Output is delayed 2*65536 samples (zeros until the first estimate). Re-centres only if the carrier moves >40
+      Hz.'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+  states:
+    _io_cache:
+    - PM carrier AFC
+    - blk
+    - - - samp_rate
+        - '250000.0'
+      - - nfft
+        - '65536'
+      - - init_blocks
+        - '2'
+      - - avg_blocks
+        - '8'
+      - - search_hz
+        - '30000.0'
+      - - sub_hz
+        - '5000.0'
+      - - min_db
+        - '12.0'
+      - - hyst_hz
+        - '40.0'
+    - - - '0'
+        - complex
+        - 1
+    - - - '0'
+        - complex
+        - 1
+    - ''
+    - []
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 430
+    - 288
+    rotation: 0
+    state: enabled
+- name: epy_block_norm
+  id: epy_block
+  parameters:
+    samp_rate: timing_rate
+    tau: '0.25'
+    sub: '250'
+    _source_code: "import numpy as np\nfrom gnuradio import gr\n\n\nclass blk(gr.sync_block):\n    \"\"\"Level-independent\
+      \ power normaliser (replaces analog.agc).\n\n    GNU Radio's agc adds rate*(ref-|y|) to the gain, so with small sample\
+      \ amplitudes\n    (e.g. int16/32768 recordings, ~1e-4) its time constant is 1/(rate*|x|) -- tens of\n    seconds --\
+      \ and the Costas/M&M loops see the wrong amplitude all that time.\n    This block scales the stream to unit mean power\
+      \ with a fixed time constant,\n    whatever the input level.  Silence (exact zeros) is passed through unchanged.\n \
+      \   \"\"\"\n\n    def __init__(self, samp_rate=50000.0, tau=0.25, sub=250):\n        gr.sync_block.__init__(self, name='Power\
+      \ normaliser',\n                               in_sig=[np.complex64], out_sig=[np.complex64])\n        self.fs = float(samp_rate)\n\
+      \        self.tau = float(tau)\n        self.sub = int(sub)\n        self.P = None\n\n    def work(self, input_items,\
+      \ output_items):\n        x = input_items[0]\n        n = len(x)\n        out = output_items[0]\n        for i in range(0,\
+      \ n, self.sub):\n            seg = x[i:i + self.sub]\n            p = float(np.mean(seg.real.astype(np.float64) ** 2\
+      \ + seg.imag.astype(np.float64) ** 2))\n            if p <= 1e-30:\n                out[i:i + len(seg)] = 0\n      \
+      \          continue\n            if self.P is None:\n                self.P = p\n            else:\n               \
+      \ a = 1.0 - np.exp(-len(seg) / (self.tau * self.fs))\n                self.P += a * (p - self.P)\n            out[i:i\
+      \ + len(seg)] = seg / np.sqrt(self.P)\n        return n\n"
+    affinity: ''
+    alias: ''
+    comment: Level-independent power normaliser (replaces analog AGC). Costas/M&M error detectors expect ~unit symbol amplitude.
+    maxoutbuf: '0'
+    minoutbuf: '0'
+  states:
+    _io_cache:
+    - Power normaliser
+    - blk
+    - - - samp_rate
+        - '50000.0'
+      - - tau
+        - '0.25'
+      - - sub
+        - '250'
+    - - - '0'
+        - complex
+        - 1
+    - - - '0'
+        - complex
+        - 1
+    - ''
+    - []
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 1344
+    - 400
+    rotation: 0
+    state: enabled
 connections:
+- - blocks_file_source_0
+  - '0'
+  - blocks_interleaved_short_to_complex_0
+  - '0'
+- - blocks_interleaved_short_to_complex_0
+  - '0'
+  - blocks_multiply_const_vxx_0
+  - '0'
+- - blocks_multiply_const_vxx_0
+  - '0'
+  - blocks_throttle_0
+  - '0'
+- - blocks_throttle_0
+  - '0'
+  - freq_xlating_fir_filter_xxx_0
+  - '0'
 - - iio_fmcomms2_source_0
   - '0'
   - freq_xlating_fir_filter_xxx_0
@@ -719,13 +988,13 @@ connections:
   - '0'
 - - freq_xlating_fir_filter_xxx_0
   - '0'
+  - epy_block_afc
+  - '0'
+- - epy_block_afc
+  - '0'
   - fir_filter_xxx_0
   - '0'
 - - fir_filter_xxx_0
-  - '0'
-  - analog_agc_xx_0
-  - '0'
-- - analog_agc_xx_0
   - '0'
   - analog_pll_carriertracking_cc_0
   - '0'
@@ -738,6 +1007,10 @@ connections:
   - fir_filter_xxx_1
   - '0'
 - - fir_filter_xxx_1
+  - '0'
+  - epy_block_norm
+  - '0'
+- - epy_block_norm
   - '0'
   - digital_costas_loop_cc_0
   - '0'
