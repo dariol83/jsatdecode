@@ -70,7 +70,7 @@ The producer MUST emit only `0` or `1` for SNR availability. A receiver MUST tre
 - Carrier offset is **signed**; positive means the observed carrier is above the reference center frequency, negative below. `−2,147,483,648` is reserved as the unavailable sentinel and is not a valid offset.
 - SNR is valid only if the availability bits equal `1` **and** the float is finite. Otherwise a receiver MUST consider SNR unavailable. The producer MUST encode a quiet NaN when unavailable and set availability to `0`; it MUST NOT send infinities.
 - All counters are sampled from one logically consistent snapshot and transmitted modulo `2^32`; wraparound is permitted. `total decoded = good + error` modulo `2^32` for counters tracking the same categories. `Frames accepted for TCP distribution` is a **producer-side** count, not proof of network delivery or client processing.
-- A connected client SHOULD receive an immediate monitoring snapshot upon connection **when monitoring distribution is enabled**, then periodic snapshots at the configured interval. No monitoring snapshots are emitted when monitoring distribution is disabled.
+- A connected client SHOULD receive an immediate monitoring snapshot upon connection **when monitoring distribution is enabled**, then periodic snapshots at the configured interval. No monitoring snapshots are emitted when monitoring distribution is disabled. Snapshot submissions update the latest immutable observation; they do not independently trigger extra periodic publications. Before an observation is supplied, the initial snapshot uses unknown lock states and unavailable measurements.
 
 ## 5. Type 2 — event
 
@@ -99,21 +99,25 @@ The producer MUST emit only `0` or `1` for SNR availability. A receiver MUST tre
 
 State-change events contain the **new** state in the corresponding status bits. Events with other codes carry a current status snapshot. In v1, decoder error, distribution overrun, and data discarded are intentionally **code-only** notifications: there is no embedded text, severity, or supplemental payload. Unsupported framework event categories MUST NOT be mapped to misleading event codes; they MAY remain local to JSatDecode. Producers MUST NOT emit reserved event codes; receivers SHOULD ignore unknown codes after validating the message length.
 
+Framework decoder lifecycle and lock transitions detected in monitoring observations generate events using that observation's timestamp and new state. Explicit framework events retain their supplied occurrence timestamp and event-time attributes; unsupported categories remain local.
+
 Events SHOULD be emitted promptly after occurrence, without waiting for frame batching. The stopped event is best-effort during normal shutdown; abrupt process or socket failure cannot guarantee its delivery.
 
 ## 6. Connection, ordering, batching and resource limits
 
 1. The JSatDecode TCP distributor acts as a **TCP server**. One client connection carries the enabled frame, monitoring and event message streams. Multiple clients receive independently queued copies of the same serialized messages. No application-level acknowledgement or replay exists.
-2. The frame accumulator is flushed when **either** `max_frame_buffer` frames are collected (default **5**) **or** `max_frame_latency_s` seconds have elapsed since the **first frame of the current nonempty batch** (default **1 s**). A batch MUST also flush before adding a frame that would exceed `max_message_bytes`. No empty frame-batch messages are sent. Normal shutdown attempts a final flush.
+2. The frame accumulator is flushed when **either** `max_frame_buffer` frames are collected (default **5**) **or** `max_frame_latency_s` seconds have elapsed since the **first frame of the current nonempty batch** (default **1 s**). A batch MUST also flush before adding a frame that would exceed `max_message_bytes`. No empty frame-batch messages are sent. Normal shutdown attempts a final flush, drains the producer queues, and gives client queues one shared bounded drain period (one second in the Java implementation) before closing stalled connections.
 3. Timer deadlines MUST use a monotonic clock (e.g., `System.nanoTime()`), not UTC timestamps. The latency bound applies to *submission for transmission*, not guaranteed network delivery; it is measured in real processing time even for accelerated playback of recordings.
 4. The runtime MUST keep network I/O and backpressure off decoder processing threads. Per-client outbound queues MUST be bounded by pending **bytes** (default **1,048,576**) and MUST maintain complete-message ordering. A client exceeding that limit MUST be disconnected, not silently skipped over individual frames. Other clients and the decoder MUST remain unaffected by the slow client.
 5. Application messages queued on a given connection MUST retain their enqueue order across all message types. No total event-order guarantee is implied between concurrently produced frame and status updates beyond that queue order. A client connecting later has no right to historical messages.
 6. A full TCP connection loss may cause undelivered messages. Successful `write` calls only establish submission to the local TCP stack, **not** remote application consumption. Clients MAY reconnect; the protocol provides no continuity sequence number or recovery mechanism.
 7. On invalid magic at an expected message boundary, oversized/malformed known messages, or truncated messages at EOF, the reference client MUST report a protocol/transport error and discard the incomplete message. It MUST NOT attempt mid-payload resynchronization by scanning for `0xA5`.
 
-## 7. Configuration (proposed Java properties)
+## 7. Configuration (Java properties)
 
-The `tcp` implementation lives under `distribution.tcp`. The framework's two existing distributor selections remain explicit; both enabled adapters MUST share **one** server/socket listener and one coordinated lifecycle, rather than each opening an independent server.
+The `tcp` implementation lives under `distribution.tcp`. The framework's two existing distributor selections remain explicit; both enabled adapters MUST share **one** server/socket listener and one coordinated lifecycle, rather than each opening an independent server. Factory-created adapters acquire references to that listener: the first started adapter starts it, and the last stopped/closed adapter drains and closes it. Direct constructors accepting a server leave its lifecycle with the caller.
+
+The shared `distribution.tcp.*` properties below are aliases applied to selected TCP streams before the runtime passes unprefixed sections to their factories. Canonical keys use `distribution.frames.*` and `distribution.monitoring.*`, as listed in [the configuration reference](configuration-reference.md#tcp-frame-output); explicit canonical keys take precedence over shared aliases. Shared listener settings MUST agree when both streams select TCP; mismatches are rejected before binding. Unknown TCP settings are rejected.
 
 | Property | Default | Meaning |
 |---|---|---|
@@ -121,16 +125,21 @@ The `tcp` implementation lives under `distribution.tcp`. The framework's two exi
 | `distribution.monitoring.type` | Existing framework default | Set `tcp` to enable monitoring and events |
 | `distribution.tcp.port` | `6001` | TCP listen port |
 | `distribution.tcp.keepalive` | `false` | `SO_KEEPALIVE` |
-| `distribution.tcp.max_clients` | `2` | Concurrent client limit; surplus connections rejected/closed |
+| `distribution.tcp.max_clients` | `2` | Concurrent client limit, `1..65535`; surplus connections rejected/closed |
 | `distribution.tcp.send_buffer_bytes` | OS default | Optional requested `SO_SNDBUF` |
 | `distribution.tcp.receive_buffer_bytes` | OS default | Optional requested `SO_RCVBUF` |
 | `distribution.tcp.tcp_nodelay` | `true` | Set `TCP_NODELAY` |
-| `distribution.tcp.monitoring_interval_s` | `3` | Periodic monitoring cadence |
-| `distribution.tcp.max_frame_latency_s` | `1` | Nonempty batch latency trigger |
+| `distribution.tcp.monitoring_interval_s` | `3` | Periodic monitoring cadence, `0.001..86400` seconds |
+| `distribution.tcp.max_frame_latency_s` | `1` | Nonempty batch latency trigger, `0.001..86400` seconds |
 | `distribution.tcp.max_frame_buffer` | `5` | Frame-count flush trigger |
-| `distribution.tcp.max_message_bytes` | `1048576` | Accepted/sent wire-message size limit |
+| `distribution.tcp.max_message_bytes` | `1048576` | Accepted/sent wire-message size limit, `40..2147483647` bytes in the Java implementation |
 | `distribution.tcp.client_queue_bytes` | `1048576` | Maximum pending application TX bytes, per client |
-| `distribution.tcp.slow_client_policy` | `DISCONNECT` | V1 policy; other values unsupported |
+| `distribution.tcp.slow_client_policy` | `DISCONNECT` | V1 network byte-queue policy; other values rejected |
+| `distribution.tcp.source_id` | `1` | Source/antenna identifier, `0..65535` |
+
+Each adapter also accepts canonical `queue_capacity` (default `256`) and `overflow_policy` (default `FAIL_RUNTIME`) properties for its **producer item queue**. Frame items and monitoring/event items have independent queues. `DROP_NEWEST` and `DROP_OLDEST` apply only to these producer queues; they never change the disconnect-only network byte-queue policy. Producer loss is counted locally, and monitoring-enabled sessions report coalesced overrun/discard notifications without retaining unbounded history. Frames accepted into the producer queue count toward the accepted-frame counter, including frames subsequently discarded by a producer policy.
+
+The Java settings use millisecond timer resolution; fractional seconds are truncated to milliseconds (minimum 1 ms). Wire lengths are parsed as unsigned values before comparison with the implementation's configured signed-int allocation cap, so unsupported larger messages are rejected as oversized.
 
 Optional socket buffer sizes MUST be positive when supplied, but the OS MAY choose different actual sizes. Implementations MUST validate configuration at startup (`1 ≤ max_clients`, `1 ≤ max_frame_buffer`, positive intervals and limits, and `max_message_bytes ≥ 40`). If a selected stream is disabled, it MUST NOT be emitted solely because the other stream selects `tcp`.
 
@@ -148,4 +157,3 @@ Optional socket buffer sizes MUST be positive when supplied, but the OS MAY choo
 - All known message types use fixed layouts or length-delimited concatenations; no implicit struct padding is allowed.
 - Identifiers are `uint16`; frequencies are `uint56` Hz; offsets are signed `int32` Hz; time values are signed `int64` Unix nanoseconds.
 - Transport is **best-effort live distribution over reliable ordered TCP**, not durable, acknowledged or replayable delivery.
-

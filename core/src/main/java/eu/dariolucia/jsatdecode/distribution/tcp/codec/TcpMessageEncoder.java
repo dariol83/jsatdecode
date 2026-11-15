@@ -15,9 +15,9 @@ import java.util.Objects;
  * <p>Usage example:
  * <pre>{@code
  * TcpMessageEncoder encoder = new TcpMessageEncoder(sourceId, maxMessageBytes);
- * byte[] frameBatch = encoder.encodeFrameBatch(frames, quality);
- * byte[] monitoring = encoder.encodeMonitoring(snapshot);
- * byte[] event = encoder.encodeEvent(event);
+ * byte[] frameBatch = encoder.encodeFrameBatch(frames);
+ * byte[] monitoring = encoder.encodeMonitoring(monitoringMessage);
+ * byte[] event = encoder.encodeEvent(eventMessage);
  * }</pre>
  */
 public final class TcpMessageEncoder {
@@ -36,9 +36,9 @@ public final class TcpMessageEncoder {
         if (sourceId < 0 || sourceId > 65535) {
             throw new IllegalArgumentException("Source ID must be between 0 and 65535: " + sourceId);
         }
-        if (maxMessageBytes < TcpConstants.MIN_MESSAGE_LENGTH) {
+        if (maxMessageBytes < TcpConstants.MONITORING_MESSAGE_LENGTH) {
             throw new IllegalArgumentException("Max message bytes must be at least " +
-                    TcpConstants.MIN_MESSAGE_LENGTH + ": " + maxMessageBytes);
+                    TcpConstants.MONITORING_MESSAGE_LENGTH + ": " + maxMessageBytes);
         }
         this.sourceId = sourceId;
         this.maxMessageBytes = maxMessageBytes;
@@ -65,12 +65,10 @@ public final class TcpMessageEncoder {
     /**
      * Encodes a frame batch message.
      *
-     * <p>The frames are concatenated into a single message. If the total size would
-     * exceed maxMessageBytes, only as many frames as possible are included, starting
-     * from the first frame. At least one frame is always included if the input is non-empty.
+     * <p>All supplied frames are encoded in order. An oversized batch is rejected as a whole.
      *
      * @param frames  The list of frame records to encode
-     * @return A byte array containing the encoded message, or null if no frames fit
+     * @return A byte array containing the encoded message, or null for an empty list
      * @throws IllegalArgumentException if frames list is null
      */
     public byte[] encodeFrameBatch(List<FrameRecord> frames) {
@@ -81,20 +79,14 @@ public final class TcpMessageEncoder {
         }
 
         // Calculate total payload size
-        int totalPayloadSize = 0;
-        int framesToInclude = 0;
+        long payloadSize = 0;
         for (FrameRecord frame : frames) {
-            int frameSize = frame.recordLength();
-            if (totalPayloadSize + frameSize > maxMessageBytes - TcpConstants.HEADER_LENGTH) {
-                break;
+            payloadSize += Objects.requireNonNull(frame, "frame").recordLength();
+            if (payloadSize > maxMessageBytes - TcpConstants.HEADER_LENGTH) {
+                throw new IllegalArgumentException("Frame batch exceeds maximum message size " + maxMessageBytes);
             }
-            totalPayloadSize += frameSize;
-            framesToInclude++;
         }
-
-        if (framesToInclude == 0) {
-            return null; // First frame alone exceeds max size
-        }
+        int totalPayloadSize = (int) payloadSize;
 
         int messageLength = TcpConstants.HEADER_LENGTH + totalPayloadSize;
         ByteBuffer buffer = ByteBuffer.allocate(messageLength);
@@ -105,8 +97,8 @@ public final class TcpMessageEncoder {
         header.encode(buffer);
 
         // Write frame records
-        for (int i = 0; i < framesToInclude; i++) {
-            frames.get(i).encode(buffer);
+        for (FrameRecord frame : frames) {
+            frame.encode(buffer);
         }
 
         return buffer.array();
@@ -189,45 +181,20 @@ public final class TcpMessageEncoder {
 
         Objects.requireNonNull(snapshot, "snapshot cannot be null");
 
-        // Extract values from snapshot
-        long totalDecodedFrames = getLongValue(snapshot, "total_decoded_frames", 0L);
-        long totalErrorFrames = getLongValue(snapshot, "total_error_frames", 0L);
-        long totalGoodFrames = getLongValue(snapshot, "total_good_frames", 0L);
-        long framesAccepted = getLongValue(snapshot, "frames_accepted", 0L);
+        return encodeMonitoring(snapshot, statusByte, centerFrequencyHz,
+                TcpStatus.counter(snapshot, "distribution.tcp.frames_accepted", "frames_accepted"));
+    }
 
-        // Get carrier offset and SNR
-        int carrierOffsetHz = TcpConstants.CARRIER_OFFSET_UNAVAILABLE;
-        float snrDb = Float.NaN;
-
-        Object carrierOffsetObj = snapshot.values().get("carrier_offset_hz");
-        if (carrierOffsetObj instanceof Number) {
-            carrierOffsetHz = ((Number) carrierOffsetObj).intValue();
-        }
-
-        Object snrObj = snapshot.values().get("snr_db");
-        if (snrObj instanceof Number) {
-            snrDb = ((Number) snrObj).floatValue();
-        }
-
-        // Check SNR availability
-        int snrAvailable = Float.isFinite(snrDb) ? TcpConstants.SNR_AVAILABLE : TcpConstants.SNR_UNAVAILABLE;
-
-        // Extract state values
-        int carrierState = getIntValue(snapshot, "carrier_state", TcpConstants.STATE_UNKNOWN);
-        int symbolState = getIntValue(snapshot, "symbol_state", TcpConstants.STATE_UNKNOWN);
-        int frameState = getIntValue(snapshot, "frame_state", TcpConstants.STATE_UNKNOWN);
-
-        // Encode status byte
-        byte encodedStatus = TcpConstants.encodeStatus(carrierState, symbolState, frameState, snrAvailable);
-
-        // Create monitoring message
-        MonitoringMessage msg = MonitoringMessage.create(
-                carrierState, symbolState, frameState, snrAvailable,
-                centerFrequencyHz, carrierOffsetHz, snrDb,
-                totalDecodedFrames, totalErrorFrames, totalGoodFrames, framesAccepted
-        );
-
-        return encodeMonitoring(msg);
+    /** Encodes one consistent observation with the distributor's accepted-frame counter. */
+    public byte[] encodeMonitoring(eu.dariolucia.jsatdecode.api.monitoring.MonitoringSnapshot snapshot,
+                                   byte statusByte, long centerFrequencyHz, long framesAccepted) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        float snr = TcpStatus.snr(snapshot);
+        byte status = (byte) ((statusByte & 0xFC) | (Float.isFinite(snr) ? 1 : 0));
+        return encodeMonitoring(new MonitoringMessage(status, centerFrequencyHz, TcpStatus.carrierOffset(snapshot), snr,
+                TcpStatus.counter(snapshot, "frame.total", "total_decoded_frames"),
+                TcpStatus.counter(snapshot, "frame.bad", "total_error_frames"),
+                TcpStatus.counter(snapshot, "frame.good", "total_good_frames"), framesAccepted & 0xFFFFFFFFL));
     }
 
     /**
@@ -246,75 +213,15 @@ public final class TcpMessageEncoder {
         Objects.requireNonNull(event, "event cannot be null");
 
         // Map event type to JTDP v1 event code
-        byte eventCode = mapEventCode(event.type());
+        byte eventCode = TcpStatus.mapEventCode(event.type());
         if (eventCode == -1) {
             return null; // Unmappable event type
         }
 
         // Create event message
-        EventMessage msg = new EventMessage(eventCode, event.timestampNanos(), statusByte, centerFrequencyHz);
+        EventMessage msg = new EventMessage(eventCode, event.timestampNanos(),
+                TcpStatus.eventStatus(event, statusByte), TcpStatus.eventCenterFrequency(event, centerFrequencyHz));
         return encodeEvent(msg);
-    }
-
-    private long getLongValue(eu.dariolucia.jsatdecode.api.monitoring.MonitoringSnapshot snapshot,
-                               String key, long defaultValue) {
-        Object value = snapshot.values().get(key);
-        if (value instanceof Number) {
-            return ((Number) value).longValue();
-        }
-        return defaultValue;
-    }
-
-    private int getIntValue(eu.dariolucia.jsatdecode.api.monitoring.MonitoringSnapshot snapshot,
-                             String key, int defaultValue) {
-        Object value = snapshot.values().get(key);
-        if (value instanceof Number) {
-            return ((Number) value).intValue();
-        }
-        return defaultValue;
-    }
-
-    /**
-     * Maps a JSatDecode event type to a JTDP v1 event code.
-     *
-     * @param type The event type string
-     * @return The event code, or -1 if not mappable
-     */
-    private byte mapEventCode(String type) {
-        if (type == null) {
-            return -1;
-        }
-        switch (type.toLowerCase()) {
-            case "decoder.started":
-            case "decoder_started":
-                return TcpConstants.EVENT_DECODER_STARTED;
-            case "decoder.stopped":
-            case "decoder_stopped":
-                return TcpConstants.EVENT_DECODER_STOPPED;
-            case "carrier.locked":
-            case "carrier.unlocked":
-            case "carrier_state_changed":
-                return TcpConstants.EVENT_CARRIER_STATE_CHANGED;
-            case "symbol.locked":
-            case "symbol.unlocked":
-            case "symbol_state_changed":
-                return TcpConstants.EVENT_SYMBOL_STATE_CHANGED;
-            case "frame.locked":
-            case "frame.unlocked":
-            case "frame_state_changed":
-                return TcpConstants.EVENT_FRAME_STATE_CHANGED;
-            case "decoder.error":
-            case "decoder_error":
-                return TcpConstants.EVENT_DECODER_ERROR;
-            case "distribution.overrun":
-            case "distribution_overrun":
-                return TcpConstants.EVENT_DISTRIBUTION_OVERRUN;
-            case "data.discarded":
-            case "data_discarded":
-                return TcpConstants.EVENT_DATA_DISCARDED;
-            default:
-                return -1; // Unmappable
-        }
     }
 
     /**
@@ -322,7 +229,7 @@ public final class TcpMessageEncoder {
      *
      * @param frames  The list of annotated frames
      * @param quality The quality to assign to all frames
-     * @return A byte array containing the encoded message, or null if no frames fit
+     * @return A byte array containing the encoded message, or null for an empty list
      */
     public byte[] encodeFrameBatchFromAnnotated(
             List<eu.dariolucia.jsatdecode.api.frame.AnnotatedFrame> frames,

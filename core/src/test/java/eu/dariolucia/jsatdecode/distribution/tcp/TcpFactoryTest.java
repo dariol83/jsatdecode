@@ -1,166 +1,92 @@
 package eu.dariolucia.jsatdecode.distribution.tcp;
 
-import eu.dariolucia.jsatdecode.api.distribution.FrameDistributor;
+import eu.dariolucia.jsatdecode.api.config.Configuration;
 import eu.dariolucia.jsatdecode.api.distribution.FrameDistributorFactory;
-import eu.dariolucia.jsatdecode.api.distribution.MonitoringDistributor;
 import eu.dariolucia.jsatdecode.api.distribution.MonitoringDistributorFactory;
-import eu.dariolucia.jsatdecode.api.distribution.OverflowPolicy;
+import eu.dariolucia.jsatdecode.api.lifecycle.ComponentState;
+import eu.dariolucia.jsatdecode.distribution.tcp.server.TcpServerRegistry;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.util.Map;
 import java.util.ServiceLoader;
-
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * Tests for TCP distributor factories.
- */
-public final class TcpFactoryTest {
+class TcpFactoryTest {
+    @AfterEach void cleanup() { TcpServerRegistry.clearAll(); }
 
-    // Note: ServiceLoader tests may fail in test environment due to classpath issues
-    // The ServiceLoader functionality works correctly at runtime
-    // @Test
-    public void testFrameDistributorFactoryServiceLoader() {
-        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
-        try {
-            // Use the class classloader to ensure service files are found
-            ClassLoader classLoader = TcpFactoryTest.class.getClassLoader();
-            ServiceLoader<FrameDistributorFactory> loader = 
-                    ServiceLoader.load(FrameDistributorFactory.class, classLoader);
+    @Test void serviceLoaderDiscoversBothFactories() {
+        assertTrue(ServiceLoader.load(FrameDistributorFactory.class).stream()
+                .anyMatch(provider -> provider.type().equals(TcpFrameDistributorFactory.class)));
+        assertTrue(ServiceLoader.load(MonitoringDistributorFactory.class).stream()
+                .anyMatch(provider -> provider.type().equals(TcpMonitoringDistributorFactory.class)));
+    }
 
-            boolean found = false;
-            for (FrameDistributorFactory factory : loader) {
-                if (factory instanceof TcpFrameDistributorFactory) {
-                    found = true;
-                    break;
-                }
-            }
+    @Test void tcpServiceRegistrationPreservesOtherOutputs() {
+        var frames = ServiceLoader.load(FrameDistributorFactory.class).stream()
+                .map(provider -> provider.get().descriptor().id()).collect(java.util.stream.Collectors.toSet());
+        var monitoring = ServiceLoader.load(MonitoringDistributorFactory.class).stream()
+                .map(provider -> provider.get().descriptor().id()).collect(java.util.stream.Collectors.toSet());
+        assertTrue(frames.containsAll(java.util.Set.of("tcp", "synthetic", "zmq", "frame-file")));
+        assertTrue(monitoring.containsAll(java.util.Set.of("tcp", "synthetic", "zmq")));
+    }
 
-            assertTrue(found, "TcpFrameDistributorFactory should be discoverable via ServiceLoader");
-        } finally {
-            Thread.currentThread().setContextClassLoader(originalClassLoader);
+    @Test void runtimeStyleSectionsStartOneSharedListenerAndReleaseItLast() throws Exception {
+        int port = TcpTestSupport.port();
+        var frame = (TcpFrameDistributor) new TcpFrameDistributorFactory().create(
+                new Configuration(Map.of("type", "tcp", "port", port, "max_frame_buffer", 1)));
+        var monitor = (TcpMonitoringDistributor) new TcpMonitoringDistributorFactory().create(
+                new Configuration(Map.of("type", "tcp", "port", port, "monitoring_interval_s", .025)));
+        assertSame(frame.getServer(), monitor.getServer());
+        frame.start();
+        monitor.start();
+        try (Socket socket = new Socket("localhost", port)) {
+            socket.setSoTimeout(2000);
+            assertEquals(1, TcpTestSupport.read(socket).getType());
+            assertEquals(ComponentState.RUNNING, frame.getServer().state());
+            frame.stop();
+            assertTrue(monitor.getServer().isRunning(), "monitor still owns listener");
+            assertTrue(TcpServerRegistry.hasServer(port));
+            monitor.stop();
+            assertFalse(TcpServerRegistry.hasServer(port));
+        } finally { frame.close(); monitor.close(); }
+        try (ServerSocket rebound = new ServerSocket(port)) { assertTrue(rebound.isBound()); }
+    }
+
+    @Test void closeBeforeStartReleasesConstructionReferences() throws Exception {
+        int port = TcpTestSupport.port();
+        var frame = new TcpFrameDistributorFactory().create(new Configuration(Map.of("port", port)));
+        assertTrue(TcpServerRegistry.hasServer(port));
+        frame.close();
+        assertFalse(TcpServerRegistry.hasServer(port));
+    }
+
+    @Test void directFactoriesRejectConflictingSharedSettings() throws Exception {
+        int port = TcpTestSupport.port();
+        try (var frame = new TcpFrameDistributorFactory().create(new Configuration(Map.of("port", port)))) {
+            assertThrows(IllegalArgumentException.class, () -> new TcpMonitoringDistributorFactory().create(
+                    new Configuration(Map.of("port", port, "source_id", 2))));
         }
     }
 
-    // Note: ServiceLoader tests may fail in test environment due to classpath issues
-    // The ServiceLoader functionality works correctly at runtime
-    // @Test
-    public void testMonitoringDistributorFactoryServiceLoader() {
-        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
-        try {
-            // Use the class classloader to ensure service files are found
-            ClassLoader classLoader = TcpFactoryTest.class.getClassLoader();
-            ServiceLoader<MonitoringDistributorFactory> loader = 
-                    ServiceLoader.load(MonitoringDistributorFactory.class, classLoader);
-
-            boolean found = false;
-            for (MonitoringDistributorFactory factory : loader) {
-                if (factory instanceof TcpMonitoringDistributorFactory) {
-                    found = true;
-                    break;
-                }
+    @Test void bindFailureReleasesTheRegistryReference() throws Exception {
+        try (ServerSocket occupied = new ServerSocket(0)) {
+            int port = occupied.getLocalPort();
+            try (var frame = new TcpFrameDistributorFactory().create(new Configuration(Map.of("port", port)))) {
+                assertThrows(Exception.class, frame::start);
             }
-
-            assertTrue(found, "TcpMonitoringDistributorFactory should be discoverable via ServiceLoader");
-        } finally {
-            Thread.currentThread().setContextClassLoader(originalClassLoader);
+            assertFalse(TcpServerRegistry.hasServer(port));
         }
     }
 
-    @Test
-    public void testFrameDistributorFactoryCreate() throws Exception {
-        TcpFrameDistributorFactory factory = new TcpFrameDistributorFactory();
-
-        java.util.Map<String, Object> configMap = new java.util.HashMap<>();
-        configMap.put("distribution.tcp.port", 17001);
-        configMap.put("distribution.tcp.max_clients", 1);
-        
-        eu.dariolucia.jsatdecode.api.config.Configuration config = 
-                new eu.dariolucia.jsatdecode.api.config.Configuration(configMap);
-
-        FrameDistributor distributor = factory.create(config);
-        
-        assertNotNull(distributor);
-        assertTrue(distributor instanceof TcpFrameDistributor);
-        
-        distributor.start();
-        distributor.stop();
-        distributor.close();
-    }
-
-    @Test
-    public void testMonitoringDistributorFactoryCreate() throws Exception {
-        TcpMonitoringDistributorFactory factory = new TcpMonitoringDistributorFactory();
-
-        java.util.Map<String, Object> configMap = new java.util.HashMap<>();
-        configMap.put("distribution.tcp.port", 17002);
-        configMap.put("distribution.tcp.max_clients", 1);
-        
-        eu.dariolucia.jsatdecode.api.config.Configuration config = 
-                new eu.dariolucia.jsatdecode.api.config.Configuration(configMap);
-
-        MonitoringDistributor distributor = factory.create(config);
-        
-        assertNotNull(distributor);
-        assertTrue(distributor instanceof TcpMonitoringDistributor);
-        
-        distributor.start();
-        distributor.stop();
-        distributor.close();
-    }
-
-    @Test
-    public void testFrameDistributorFactoryDescriptor() {
-        TcpFrameDistributorFactory factory = new TcpFrameDistributorFactory();
-        var descriptor = factory.descriptor();
-        
-        assertNotNull(descriptor);
-        assertEquals("tcp", descriptor.id());
-        assertNotNull(descriptor.name());
-        assertNotNull(descriptor.version());
-        assertNotNull(descriptor.description());
-    }
-
-    @Test
-    public void testMonitoringDistributorFactoryDescriptor() {
-        TcpMonitoringDistributorFactory factory = new TcpMonitoringDistributorFactory();
-        var descriptor = factory.descriptor();
-        
-        assertNotNull(descriptor);
-        assertEquals("tcp", descriptor.id());
-        assertNotNull(descriptor.name());
-        assertNotNull(descriptor.version());
-        assertNotNull(descriptor.description());
-    }
-
-    @Test
-    public void testFrameDistributorDescriptor() {
-        TcpFrameDistributor distributor = new TcpFrameDistributor(
-                new TcpSettings(17003, false, 1, 0, 0, true, 0, 0, 5, 1048576, 1048576, 1, 
-                        OverflowPolicy.FAIL_RUNTIME)
-        );
-        
-        var descriptor = distributor.descriptor();
-        
-        assertNotNull(descriptor);
-        assertEquals("tcp", descriptor.id());
-        assertNotNull(descriptor.name());
-        assertNotNull(descriptor.version());
-        assertNotNull(descriptor.description());
-    }
-
-    @Test
-    public void testMonitoringDistributorDescriptor() {
-        TcpMonitoringDistributor distributor = new TcpMonitoringDistributor(
-                new TcpSettings(17004, false, 1, 0, 0, true, 3000, 0, 5, 1048576, 1048576, 1,
-                        OverflowPolicy.FAIL_RUNTIME)
-        );
-        
-        var descriptor = distributor.descriptor();
-        
-        assertNotNull(descriptor);
-        assertEquals("tcp", descriptor.id());
-        assertNotNull(descriptor.name());
-        assertNotNull(descriptor.version());
-        assertNotNull(descriptor.description());
+    @Test void descriptorsRemainAvailableWithoutStarting() {
+        try (var frame = new TcpFrameDistributor(TcpSettings.from(new Configuration(Map.of())));
+             var monitor = new TcpMonitoringDistributor(TcpSettings.from(new Configuration(Map.of()), true))) {
+            assertEquals("tcp", frame.descriptor().id());
+            assertEquals("tcp", monitor.descriptor().id());
+            assertEquals("tcp", new TcpFrameDistributorFactory().descriptor().id());
+            assertEquals("tcp", new TcpMonitoringDistributorFactory().descriptor().id());
+        }
     }
 }

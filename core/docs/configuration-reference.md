@@ -216,7 +216,7 @@ JSatDecode TCP Binary Distribution Protocol (JTDP) v1 frame output. Select `tcp`
 explicitly. One server socket listens on a single port and distributes frames
 to all connected clients. The server also coordinates with the TCP monitoring
 distributor so that a single connection can receive frames, monitoring snapshots,
-and events. Unknown keys are rejected.
+and events. Unknown keys are rejected. Shared `distribution.tcp.*` aliases are supported for the transport/batching settings below; explicit per-stream keys win. The runtime validates shared listener settings before construction.
 
 | Key | Default | Purpose / allowed values |
 | --- | --- | --- |
@@ -224,16 +224,16 @@ and events. Unknown keys are rejected.
 | `distribution.frames.port` | `6001` | TCP listen port, `1..65535`. |
 | `distribution.frames.keepalive` | `false` | Enable `SO_KEEPALIVE`. |
 | `distribution.frames.max_clients` | `2` | Maximum concurrent clients, `1..65535`. |
-| `distribution.frames.send_buffer_bytes` | OS default | Optional requested `SO_SNDBUF` size in bytes. |
-| `distribution.frames.receive_buffer_bytes` | OS default | Optional requested `SO_RCVBUF` size in bytes. |
+| `distribution.frames.send_buffer_bytes` | OS default | Optional positive requested `SO_SNDBUF` size in bytes. |
+| `distribution.frames.receive_buffer_bytes` | OS default | Optional positive requested `SO_RCVBUF` size in bytes. |
 | `distribution.frames.tcp_nodelay` | `true` | Set `TCP_NODELAY` (disable Nagle's algorithm). |
 | `distribution.frames.max_frame_latency_s` | `1` | Maximum latency for frame batching, `0.001..86400` seconds. |
 | `distribution.frames.max_frame_buffer` | `5` | Maximum number of frames to batch, `1..65535`. |
 | `distribution.frames.max_message_bytes` | `1048576` | Maximum message size in bytes, `40..2147483647`. |
 | `distribution.frames.client_queue_bytes` | `1048576` | Maximum pending outbound bytes per client, `1..2147483647`. |
 | `distribution.frames.source_id` | `1` | Source/antenna identifier, `0..65535`. |
-| `distribution.frames.queue_capacity` | `256` | Positive integer queued-item capacity; for compatibility with other distributors. |
-| `distribution.frames.overflow_policy` | `FAIL_RUNTIME` | `FAIL_RUNTIME`, `DROP_NEWEST`, `DROP_OLDEST`. |
+| `distribution.frames.queue_capacity` | `256` | Positive integer frame-producer queue capacity, excluding the bounded active batch. |
+| `distribution.frames.overflow_policy` | `FAIL_RUNTIME` | Producer item-queue policy: `FAIL_RUNTIME`, `DROP_NEWEST`, `DROP_OLDEST`; independent of client byte queues. |
 
 Protocol and behavior: [TCP distribution interface](tcp-distribution-interface.md).
 
@@ -248,19 +248,27 @@ keys are rejected.
 | --- | --- | --- |
 | `distribution.monitoring.type` | `synthetic` (CLI) | Set to `tcp`. |
 | `distribution.monitoring.port` | `6001` | TCP listen port, `1..65535`; MUST match `distribution.frames.port` when using both TCP distributors. |
-| `distribution.monitoring.keepalive` | `false` | Enable `SO_KEEPALIVE`. |
+| `distribution.monitoring.keepalive` | `false` | Enable `SO_KEEPALIVE`; MUST match `distribution.frames.keepalive`. |
 | `distribution.monitoring.max_clients` | `2` | Maximum concurrent clients, `1..65535`; MUST match `distribution.frames.max_clients`. |
-| `distribution.monitoring.send_buffer_bytes` | OS default | Optional requested `SO_SNDBUF` size in bytes; MUST match `distribution.frames.send_buffer_bytes`. |
-| `distribution.monitoring.receive_buffer_bytes` | OS default | Optional requested `SO_RCVBUF` size in bytes; MUST match `distribution.frames.receive_buffer_bytes`. |
+| `distribution.monitoring.send_buffer_bytes` | OS default | Optional positive requested `SO_SNDBUF` size in bytes; MUST match `distribution.frames.send_buffer_bytes`. |
+| `distribution.monitoring.receive_buffer_bytes` | OS default | Optional positive requested `SO_RCVBUF` size in bytes; MUST match `distribution.frames.receive_buffer_bytes`. |
 | `distribution.monitoring.tcp_nodelay` | `true` | Set `TCP_NODELAY`; MUST match `distribution.frames.tcp_nodelay`. |
 | `distribution.monitoring.monitoring_interval_s` | `3` | Monitoring snapshot publication interval, `0.001..86400` seconds. |
 | `distribution.monitoring.max_message_bytes` | `1048576` | Maximum message size in bytes, `40..2147483647`; MUST match `distribution.frames.max_message_bytes`. |
 | `distribution.monitoring.client_queue_bytes` | `1048576` | Maximum pending outbound bytes per client, `1..2147483647`; MUST match `distribution.frames.client_queue_bytes`. |
 | `distribution.monitoring.source_id` | `1` | Source/antenna identifier, `0..65535`; MUST match `distribution.frames.source_id`. |
-| `distribution.monitoring.queue_capacity` | `256` | Positive integer queued-item capacity; snapshots and events share the queue. |
-| `distribution.monitoring.overflow_policy` | `FAIL_RUNTIME` | `FAIL_RUNTIME`, `DROP_NEWEST`, `DROP_OLDEST`. |
+| `distribution.monitoring.queue_capacity` | `256` | Positive integer monitoring-producer queue capacity; snapshots and events share the bounded FIFO. |
+| `distribution.monitoring.overflow_policy` | `FAIL_RUNTIME` | Producer item-queue policy: `FAIL_RUNTIME`, `DROP_NEWEST`, `DROP_OLDEST`; independent of client byte queues. |
 
 Protocol and behavior: [TCP distribution interface](tcp-distribution-interface.md).
+
+Both TCP adapters accept `slow_client_policy=DISCONNECT` in their respective sections. Other values are rejected: any client exceeding its byte quota is disconnected, regardless of the producer overflow policy. No frames, monitoring snapshots or events are generated by a disabled TCP stream. Producer overrun/discard notifications are coalesced and emitted only when TCP monitoring is enabled.
+
+TCP interval settings have millisecond resolution; fractional seconds are truncated to milliseconds (minimum 1 ms). Monitoring submissions update the latest observation, while the configured timer controls publication; enabled monitoring sends a snapshot immediately to a new client. Frame batches use the first accepted frame's monotonic submission time, not recorded reception time, for their latency deadline. Shutdown flushes producer queues and allows up to one second for client queues to drain.
+
+Shared aliases use `distribution.tcp.` followed by the corresponding transport key, `source_id`, `max_frame_buffer`, `max_frame_latency_s`, or `monitoring_interval_s`. They apply only to streams selected as `tcp`. Producer `queue_capacity` and `overflow_policy` remain per-stream settings.
+
+For the Java reference client, `TcpSettings.clientFrom` accepts `distribution.tcp.host` (default `localhost`) or `distribution.tcp.endpoint` (`host:port` or `tcp://host:port`, including bracketed IPv6), `port`, `keepalive`, positive `receive_buffer_bytes`, `tcp_nodelay`, `max_message_bytes`, `reconnect_interval_ms` (default `1000`) and `max_reconnect_interval_ms` (default `30000`). Reconnect limits satisfy `1 <= min <= max <= 86400000` ms. `new TcpClient(settings)` uses these parsed values. These client-only keys are not server configuration keys.
 
 ## Legacy aliases
 

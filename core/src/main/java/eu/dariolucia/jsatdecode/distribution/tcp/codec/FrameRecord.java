@@ -1,6 +1,7 @@
 package eu.dariolucia.jsatdecode.distribution.tcp.codec;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -56,7 +57,7 @@ public record FrameRecord(byte quality, long timestampNanos, byte[] frameData) {
      * @return The record length (13 + frame data length)
      */
     public int recordLength() {
-        return OVERHEAD + frameData.length;
+        return Math.addExact(OVERHEAD, frameData.length);
     }
 
     /**
@@ -93,6 +94,7 @@ public record FrameRecord(byte quality, long timestampNanos, byte[] frameData) {
      * @return The number of bytes written
      */
     public int encode(ByteBuffer buffer) {
+        buffer.order(ByteOrder.BIG_ENDIAN);
         buffer.put(quality);
         buffer.putLong(timestampNanos);
         buffer.putInt(frameData.length);
@@ -120,18 +122,27 @@ public record FrameRecord(byte quality, long timestampNanos, byte[] frameData) {
      * @throws IllegalArgumentException if the frame length is invalid or exceeds maxFrameLength
      */
     public static FrameRecord decode(ByteBuffer buffer, int maxFrameLength) {
+        buffer.order(ByteOrder.BIG_ENDIAN);
+        if (buffer.remaining() < OVERHEAD) {
+            throw new IllegalArgumentException("Incomplete frame record header");
+        }
         byte quality = buffer.get();
         long timestampNanos = buffer.getLong();
-        int frameLength = buffer.getInt();
+        long unsignedFrameLength = Integer.toUnsignedLong(buffer.getInt());
 
         // Validate frame length
-        if (frameLength <= 0) {
-            throw new IllegalArgumentException("Invalid frame length: " + frameLength);
+        if (unsignedFrameLength == 0) {
+            throw new IllegalArgumentException("Invalid frame length: 0");
         }
-        if (maxFrameLength > 0 && frameLength > maxFrameLength) {
-            throw new IllegalArgumentException("Frame length " + frameLength + 
+        if (maxFrameLength > 0 && unsignedFrameLength > maxFrameLength) {
+            throw new IllegalArgumentException("Frame length " + unsignedFrameLength +
                     " exceeds maximum " + maxFrameLength);
         }
+
+        if (unsignedFrameLength > buffer.remaining()) {
+            throw new IllegalArgumentException("Frame length " + unsignedFrameLength + " exceeds remaining bytes " + buffer.remaining());
+        }
+        int frameLength = (int) unsignedFrameLength;
 
         byte[] frameData = new byte[frameLength];
         buffer.get(frameData);

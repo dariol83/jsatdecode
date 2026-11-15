@@ -3,358 +3,300 @@ package eu.dariolucia.jsatdecode.distribution.tcp;
 import eu.dariolucia.jsatdecode.api.distribution.DistributionSnapshot;
 import eu.dariolucia.jsatdecode.api.distribution.FrameDistributor;
 import eu.dariolucia.jsatdecode.api.distribution.FrameDistributorDescriptor;
+import eu.dariolucia.jsatdecode.api.distribution.OverflowPolicy;
 import eu.dariolucia.jsatdecode.api.frame.AnnotatedFrame;
 import eu.dariolucia.jsatdecode.api.lifecycle.ComponentState;
 import eu.dariolucia.jsatdecode.distribution.tcp.codec.FrameRecord;
 import eu.dariolucia.jsatdecode.distribution.tcp.codec.TcpConstants;
 import eu.dariolucia.jsatdecode.distribution.tcp.codec.TcpMessageEncoder;
 import eu.dariolucia.jsatdecode.distribution.tcp.server.TcpServer;
+import eu.dariolucia.jsatdecode.distribution.tcp.server.TcpServerRegistry;
+import eu.dariolucia.jsatdecode.util.UtcTime;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * TCP-based frame distributor implementation for JTDP v1.
- *
- * <p>This class implements the {@link FrameDistributor} interface, providing
- * a TCP server that distributes frames to connected clients using the JTDP v1
- * binary protocol. The distributor batches frames according to the configured
- * parameters before sending them to clients.
- *
- * <h2>Batching Behavior</h2>
- * <p>Frames are accumulated in a buffer and automatically flushed when:
- * <ul>
- *   <li>The maximum number of frames ({@code max_frame_buffer}) is reached</li>
- *   <li>The maximum latency ({@code max_frame_latency_s}) since the first frame in the batch is exceeded</li>
- *   <li>The next frame would exceed the maximum message size</li>
- *   <li>Shutdown is requested</li>
- * </ul>
- *
- * <p>Each frame batch message contains one or more frame records. Each record includes:
- * <ul>
- *   <li>Quality byte (0=good, 1=bad, 2=unknown)</li>
- *   <li>Reception timestamp (nanoseconds since Unix epoch)</li>
- *   <li>Frame length (bytes)</li>
- *   <li>Raw frame bytes</li>
- * </ul>
- *
- * <h2>Thread Safety</h2>
- * <p>This class is thread-safe. The {@link #distribute(AnnotatedFrame)} method
- * can be called from any thread.
- *
- * <h2>Integration</h2>
- * <p>This distributor integrates with JSatDecode's distribution framework via
- * the {@link TcpFrameDistributorFactory} mechanism. It can be selected by setting
- * the configuration property {@code distribution.frames.type=tcp}.
- *
- * @see TcpFrameDistributorFactory
- * @see TcpServer
- * @see FrameDistributor
+ * Bounded asynchronous JTDP frame producer. Batching deadlines are measured from
+ * submission on the producer, independently of recording timestamps and traffic.
+ * Network backpressure is handled separately by the server's byte-bounded queues.
  */
 public final class TcpFrameDistributor implements FrameDistributor {
+    private record PendingFrame(AnnotatedFrame frame, long submittedNanos, int recordLength) { }
 
     private final TcpSettings settings;
     private final TcpServer server;
     private final TcpMessageEncoder encoder;
     private final boolean serverOwned;
-
-    // Frame batching state
-    private final CopyOnWriteArrayList<AnnotatedFrame> frameBuffer = new CopyOnWriteArrayList<>();
-    private volatile long firstFrameTimeNanos = 0;
-
-    // Statistics
-    private final AtomicLong messagesReceived = new AtomicLong(0);
-    private final AtomicLong messagesSent = new AtomicLong(0);
-    private final AtomicLong droppedFrames = new AtomicLong(0);
-    private final AtomicLong errorCounter = new AtomicLong(0);
-
-    // State management
+    private final boolean managedServer;
+    private boolean serverReleased;
+    private final ArrayDeque<PendingFrame> queue = new ArrayDeque<>();
+    private final Object queueLock = new Object();
+    private volatile boolean accepting;
+    private Thread worker;
+    private final AtomicLong messagesReceived = new AtomicLong();
+    private final AtomicLong messagesSent = new AtomicLong();
+    private final AtomicLong droppedFrames = new AtomicLong();
+    private final AtomicLong errorCounter = new AtomicLong();
     private final AtomicReference<ComponentState> state = new AtomicReference<>(ComponentState.CONFIGURED);
     private final AtomicReference<Throwable> failure = new AtomicReference<>();
 
-    /**
-     * Creates a new TCP frame distributor with the specified settings.
-     * This constructor creates and owns its own TcpServer instance.
-     *
-     * @param settings The TCP distribution settings
-     * @throws IllegalArgumentException if settings is null
-     */
     public TcpFrameDistributor(TcpSettings settings) {
-        this(settings, null);
+        this(settings, null, false);
     }
 
-    /**
-     * Creates a new TCP frame distributor with the specified settings and server.
-     * If server is provided, it will be shared with this distributor. If null,
-     * a new server will be created.
-     *
-     * @param settings The TCP distribution settings
-     * @param server   The TCP server to use, or null to create a new one
-     * @throws IllegalArgumentException if settings is null
-     */
+    /** Uses a caller-owned server; its lifecycle remains with the caller. */
     public TcpFrameDistributor(TcpSettings settings, TcpServer server) {
-        if (settings == null) {
-            throw new IllegalArgumentException("Settings cannot be null");
-        }
+        this(settings, server, false);
+    }
+
+    /** A managed server is a reference acquired from {@link TcpServerRegistry}. */
+    public TcpFrameDistributor(TcpSettings settings, TcpServer server, boolean managedServer) {
+        if (settings == null) throw new IllegalArgumentException("Settings cannot be null");
+        if (managedServer && server == null) throw new IllegalArgumentException("Managed server cannot be null");
         this.settings = settings;
-        this.serverOwned = (server == null);
-        this.server = (server != null) ? server : new TcpServer(settings);
+        this.serverOwned = server == null;
+        this.managedServer = managedServer;
+        this.server = server == null ? new TcpServer(settings) : server;
         this.encoder = new TcpMessageEncoder(settings.sourceId(), settings.maxMessageBytes());
     }
 
     @Override
     public FrameDistributorDescriptor descriptor() {
-        return new FrameDistributorDescriptor(
-                "tcp",
-                "JSatDecode TCP Frame Distributor",
-                "1",
-                "Distributes frames to TCP clients using JTDP v1 protocol"
-        );
+        return new FrameDistributorDescriptor("tcp", "JSatDecode TCP Frame Distributor", "1",
+                "Distributes frames to TCP clients using JTDP v1 protocol");
     }
 
     @Override
     public void distribute(AnnotatedFrame frame) {
-        ComponentState currentState = state.get();
-        if (currentState != ComponentState.RUNNING) {
-            if (currentState == ComponentState.FAILED) {
-                throw new IllegalStateException("Distributor failed", failure.get());
-            }
-            throw new IllegalStateException("Distributor is not running: " + currentState);
-        }
-
-        if (frame == null) {
-            throw new IllegalArgumentException("Frame cannot be null");
-        }
-
-        messagesReceived.incrementAndGet();
-
-        // Add frame to buffer and check if we need to flush
-        boolean needsFlush = false;
-
-        synchronized (frameBuffer) {
-            long now = System.nanoTime();
-
-            // Check if frame would fit in message
-            int estimatedSize = estimateBatchSizeWithFrame(frame);
-            if (estimatedSize > settings.maxMessageBytes()) {
-                // Frame is too large
+        if (frame == null) throw new IllegalArgumentException("Frame cannot be null");
+        boolean overflow = false;
+        boolean accepted = true;
+        RuntimeException overflowFailure = null;
+        synchronized (queueLock) {
+            requireRunning();
+            messagesReceived.incrementAndGet();
+            if (frame.dataLength() == 0) {
                 droppedFrames.incrementAndGet();
-                throw new IllegalArgumentException(
-                        "Frame too large: " + frame.data().length + " bytes exceeds max message size"
-                );
+                throw new IllegalArgumentException("JTDP frames must contain at least one byte");
             }
-
-            // Add frame to buffer
-            frameBuffer.add(frame);
-
-            // Set first frame time if this is the first frame
-            if (firstFrameTimeNanos == 0) {
-                firstFrameTimeNanos = now;
+            long recordLength = 13L + frame.dataLength();
+            if (recordLength + TcpConstants.HEADER_LENGTH > settings.maxMessageBytes()) {
+                droppedFrames.incrementAndGet();
+                throw new IllegalArgumentException("Frame too large: " + frame.dataLength() +
+                        " bytes exceeds max message size");
             }
-
-            // Check frame count trigger (after adding the frame)
-            if (frameBuffer.size() >= settings.maxFrameBuffer()) {
-                needsFlush = true;
-            }
-
-            // Check latency trigger
-            if (firstFrameTimeNanos > 0) {
-                long elapsedNanos = now - firstFrameTimeNanos;
-                long elapsedMillis = elapsedNanos / 1_000_000;
-                if (elapsedMillis >= settings.maxFrameLatencyMs()) {
-                    needsFlush = true;
+            if (queue.size() == settings.queueCapacity()) {
+                overflow = true;
+                droppedFrames.incrementAndGet();
+                if (settings.overflowPolicy() == OverflowPolicy.DROP_OLDEST) {
+                    queue.removeFirst();
+                } else {
+                    accepted = false;
+                    if (settings.overflowPolicy() == OverflowPolicy.FAIL_RUNTIME) {
+                        overflowFailure = new IllegalStateException("TCP frame producer queue overflow");
+                        failure.compareAndSet(null, overflowFailure);
+                        errorCounter.incrementAndGet();
+                        accepting = false;
+                        state.set(ComponentState.FAILED);
+                    }
                 }
             }
-
-            // Flush if needed
-            if (needsFlush) {
-                flushFrameBuffer();
+            if (accepted) {
+                queue.addLast(new PendingFrame(frame, System.nanoTime(), (int) recordLength));
+                server.recordFramesAccepted(1);
             }
+            queueLock.notifyAll();
+        }
+        if (overflow) server.reportProducerOverflow(overflowFailure == null);
+        if (overflowFailure != null) throw overflowFailure;
+    }
+
+    private void requireRunning() {
+        if (state.get() != ComponentState.RUNNING || !accepting) {
+            throw new IllegalStateException("Distributor is not running: " + state.get(), failure.get());
         }
     }
 
-    /**
-     * Estimates the size of the current frame buffer plus an additional frame.
-     *
-     * @param additionalFrame The additional frame to include in the estimate
-     * @return The estimated message size in bytes
-     */
-    private int estimateBatchSizeWithFrame(AnnotatedFrame additionalFrame) {
-        int size = TcpConstants.HEADER_LENGTH;
-        for (AnnotatedFrame f : frameBuffer) {
-            // Each frame record: 1 byte quality + 8 bytes timestamp + 4 bytes length + frame data
-            size += 1 + 8 + 4 + f.data().length;
-        }
-        // Add the additional frame
-        size += 1 + 8 + 4 + additionalFrame.data().length;
-        return size;
-    }
-
-    /**
-     * Flushes the current frame buffer to all connected clients.
-     */
-    private void flushFrameBuffer() {
-        List<AnnotatedFrame> framesToSend;
-
-        synchronized (frameBuffer) {
-            if (frameBuffer.isEmpty()) {
-                return;
-            }
-
-            framesToSend = new ArrayList<>(frameBuffer);
-            frameBuffer.clear();
-            firstFrameTimeNanos = 0;
-        }
-
-        // Encode and send
+    private void frameLoop() {
+        List<FrameRecord> batch = new ArrayList<>();
+        int batchBytes = TcpConstants.HEADER_LENGTH;
+        long firstSubmitted = 0;
+        long latencyNanos = TimeUnit.MILLISECONDS.toNanos(settings.maxFrameLatencyMs());
         try {
-            byte[] message = encoder.encodeFrameBatchFromAnnotated(framesToSend, TcpConstants.FRAME_QUALITY_GOOD);
-            if (message != null) {
-                server.broadcast(message);
-                messagesSent.incrementAndGet();
+            while (true) {
+                PendingFrame pending = null;
+                boolean flush = false;
+                synchronized (queueLock) {
+                    while (true) {
+                        if (!batch.isEmpty() && (!accepting || System.nanoTime() - firstSubmitted >= latencyNanos)) {
+                            flush = true;
+                            break;
+                        }
+                        pending = queue.pollFirst();
+                        if (pending != null || !accepting) break;
+                        if (batch.isEmpty()) queueLock.wait();
+                        else TimeUnit.NANOSECONDS.timedWait(queueLock,
+                                Math.max(1, latencyNanos - (System.nanoTime() - firstSubmitted)));
+                    }
+                    if (!accepting && queue.isEmpty() && pending == null && batch.isEmpty()) break;
+                }
+                if (flush) {
+                    flush(batch);
+                    batchBytes = TcpConstants.HEADER_LENGTH;
+                    firstSubmitted = 0;
+                    continue;
+                }
+                if (pending == null) continue;
+                if (!batch.isEmpty() && (long) batchBytes + pending.recordLength() > settings.maxMessageBytes()) {
+                    flush(batch);
+                    batchBytes = TcpConstants.HEADER_LENGTH;
+                    firstSubmitted = 0;
+                }
+                if (batch.isEmpty()) firstSubmitted = pending.submittedNanos();
+                batch.add(FrameRecord.fromAnnotatedFrame(pending.frame(), quality(pending.frame())));
+                batchBytes += pending.recordLength();
+                if (batch.size() >= settings.maxFrameBuffer() || System.nanoTime() - firstSubmitted >= latencyNanos) {
+                    flush(batch);
+                    batchBytes = TcpConstants.HEADER_LENGTH;
+                    firstSubmitted = 0;
+                }
             }
-        } catch (Exception e) {
-            errorCounter.incrementAndGet();
-            failure.compareAndSet(null, e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            fail(e);
+        } catch (RuntimeException e) {
+            fail(e);
+        } finally {
+            if (!batch.isEmpty()) flush(batch);
+        }
+    }
+
+    private static byte quality(AnnotatedFrame frame) {
+        Object value = frame.annotations().get("quality");
+        if (value instanceof Number number) {
+            int quality = number.intValue();
+            if (quality >= 0 && quality <= 2) return (byte) quality;
+        } else if (value != null) {
+            return switch (value.toString().toUpperCase(Locale.ROOT)) {
+                case "GOOD" -> TcpConstants.FRAME_QUALITY_GOOD;
+                case "BAD" -> TcpConstants.FRAME_QUALITY_BAD;
+                default -> TcpConstants.FRAME_QUALITY_UNKNOWN;
+            };
+        }
+        return TcpConstants.FRAME_QUALITY_UNKNOWN;
+    }
+
+    private void flush(List<FrameRecord> batch) {
+        if (batch.isEmpty()) return;
+        try {
+            server.broadcast(encoder.encodeFrameBatch(batch));
+            messagesSent.incrementAndGet();
+        } catch (RuntimeException e) {
+            droppedFrames.addAndGet(batch.size());
+            fail(e);
+        } finally {
+            batch.clear();
+        }
+    }
+
+    private void fail(Throwable error) {
+        errorCounter.incrementAndGet();
+        failure.compareAndSet(null, error);
+        synchronized (queueLock) {
+            accepting = false;
+            state.set(ComponentState.FAILED);
+            droppedFrames.addAndGet(queue.size());
+            queue.clear();
+            queueLock.notifyAll();
         }
     }
 
     @Override
     public DistributionSnapshot monitoringSnapshot() {
-        return new DistributionSnapshot(
-                isRunning(),
-                server != null && server.isRunning(),
-                messagesReceived.get(),
-                messagesSent.get(),
-                droppedFrames.get(),
-                errorCounter.get(),
-                frameBuffer.size(),
-                settings.maxFrameBuffer(),
-                System.nanoTime()
-        );
+        synchronized (queueLock) {
+            return new DistributionSnapshot(isRunning(), server.isRunning(), messagesReceived.get(),
+                    messagesSent.get(), droppedFrames.get(), errorCounter.get(), queue.size(),
+                    settings.queueCapacity(), UtcTime.nowNanos());
+        }
     }
 
     @Override
-    public void start() throws Exception {
-        if (state.get() != ComponentState.CONFIGURED) {
+    public synchronized void start() throws Exception {
+        if (!state.compareAndSet(ComponentState.CONFIGURED, ComponentState.STARTING)) {
             throw new IllegalStateException("Distributor is one-shot: current state = " + state.get());
         }
-
-        state.set(ComponentState.STARTING);
-
         try {
-            // Start the TCP server only if we own it
-            if (serverOwned) {
-                server.start();
-            }
-
+            if (serverOwned) server.start();
+            else if (managedServer) TcpServerRegistry.startServer(server);
+            accepting = true;
             state.set(ComponentState.RUNNING);
-
+            worker = new Thread(this::frameLoop, "jsatdecode-tcp-frames");
+            worker.setDaemon(true);
+            worker.start();
         } catch (Exception e) {
-            state.set(ComponentState.FAILED);
-            failure.set(e);
-            stop();
+            fail(e);
+            releaseServer();
             throw e;
         }
     }
 
     @Override
-    public void stop() {
-        if (state.get() == ComponentState.CLOSED || state.get() == ComponentState.STOPPED) {
-            return;
+    public synchronized void stop() {
+        if (state.get() == ComponentState.CLOSED || state.get() == ComponentState.STOPPED) return;
+        synchronized (queueLock) {
+            accepting = false;
+            if (state.get() != ComponentState.FAILED) state.set(ComponentState.STOPPING);
+            queueLock.notifyAll();
         }
-
-        // Flush any remaining frames
-        flushFrameBuffer();
-
-        // Stop the server only if we own it
-        if (serverOwned) {
-            try {
-                server.stop();
-            } catch (Exception e) {
-                // Ignore
+        boolean interrupted = Thread.interrupted();
+        try {
+            if (worker != null && worker != Thread.currentThread()) {
+                while (worker.isAlive()) {
+                    try {
+                        worker.join();
+                    } catch (InterruptedException e) {
+                        interrupted = true;
+                    }
+                }
             }
+            releaseServer();
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt();
         }
+        if (state.get() != ComponentState.FAILED) state.set(ComponentState.STOPPED);
+    }
 
-        if (state.get() != ComponentState.FAILED) {
-            state.set(ComponentState.STOPPED);
-        }
+    private void releaseServer() {
+        if (serverReleased) return;
+        serverReleased = true;
+        if (managedServer) TcpServerRegistry.releaseServer(settings.port());
+        else if (serverOwned) server.stop();
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
         stop();
         state.set(ComponentState.CLOSED);
     }
 
-    @Override
-    public ComponentState state() {
-        return state.get();
-    }
-
-    /**
-     * Returns the underlying TCP server.
-     *
-     * @return The TCP server instance
-     */
-    public TcpServer getServer() {
-        return server;
-    }
-
-    /**
-     * Gets the settings used by this distributor.
-     *
-     * @return The TCP settings
-     */
-    public TcpSettings getSettings() {
-        return settings;
-    }
-
-    /**
-     * Gets the number of messages received.
-     *
-     * @return The message count
-     */
-    public long getMessagesReceived() {
-        return messagesReceived.get();
-    }
-
-    /**
-     * Gets the number of messages sent.
-     *
-     * @return The message count
-     */
-    public long getMessagesSent() {
-        return messagesSent.get();
-    }
-
-    /**
-     * Gets the number of dropped frames.
-     *
-     * @return The dropped frame count
-     */
-    public long getDroppedFrames() {
-        return droppedFrames.get();
-    }
-
-    /**
-     * Gets the first failure, if any.
-     *
-     * @return The first failure, or null
-     */
-    public Throwable getFailure() {
-        return failure.get();
-    }
+    @Override public ComponentState state() { return state.get(); }
+    public TcpServer getServer() { return server; }
+    public TcpSettings getSettings() { return settings; }
+    public long getMessagesReceived() { return messagesReceived.get(); }
+    public long getMessagesSent() { return messagesSent.get(); }
+    public long getDroppedFrames() { return droppedFrames.get(); }
+    public long getFramesAccepted() { return server.getFramesAccepted(); }
+    public Throwable getFailure() { return failure.get(); }
 
     @Override
     public String toString() {
-        return "TcpFrameDistributor[" +
-                "state=" + state.get() + ", " +
-                "frames=" + frameBuffer.size() + ", " +
-                "messagesReceived=" + messagesReceived.get() + ", " +
-                "messagesSent=" + messagesSent.get() + "]";
+        return "TcpFrameDistributor[state=" + state.get() + ", messagesReceived=" + messagesReceived.get() +
+                ", messagesSent=" + messagesSent.get() + "]";
     }
 }

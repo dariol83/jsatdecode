@@ -2,7 +2,6 @@ package eu.dariolucia.jsatdecode.distribution.tcp.codec;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.util.Objects;
 
 /**
  * Represents an event notification message (type 2).
@@ -17,7 +16,7 @@ import java.util.Objects;
  *   10      7      uint56     Center frequency in Hz (big-endian)
  * </pre>
  *
- * @param eventCode          The event code (0-6)
+ * @param eventCode          The event code (0-7)
  * @param timestampNanos     The event timestamp in nanoseconds
  * @param statusByte         The current status byte at event time
  * @param centerFrequencyHz  The center frequency in Hz at event time
@@ -42,7 +41,7 @@ public record EventMessage(
     /**
      * Creates a new event message with validation.
      *
-     * @param eventCode          The event code (0-6)
+     * @param eventCode          The event code (0-7)
      * @param timestampNanos     The event timestamp in nanoseconds
      * @param statusByte         The current status byte
      * @param centerFrequencyHz  The center frequency in Hz (must be non-negative)
@@ -52,7 +51,7 @@ public record EventMessage(
         if (!TcpConstants.isValidEventCode(eventCode)) {
             throw new IllegalArgumentException("Invalid event code: " + (eventCode & 0xFF));
         }
-        if (centerFrequencyHz < 0) {
+        if (centerFrequencyHz < 0 || centerFrequencyHz >= (1L << 56)) {
             throw new IllegalArgumentException("Center frequency must be non-negative: " + centerFrequencyHz);
         }
     }
@@ -60,7 +59,7 @@ public record EventMessage(
     /**
      * Creates an event message with individual state values.
      *
-     * @param eventCode          The event code (0-6)
+     * @param eventCode          The event code (0-7)
      * @param timestampNanos     The event timestamp in nanoseconds
      * @param carrierState       Carrier state (0-3)
      * @param symbolState        Symbol state (0-3)
@@ -184,7 +183,8 @@ public record EventMessage(
         buffer.putLong(timestampNanos);
 
         // Status byte (1 byte)
-        buffer.put(statusByte);
+        buffer.put((byte) ((statusByte & ~TcpConstants.STATUS_SNR_MASK) |
+                (TcpConstants.decodeSnrAvailable(statusByte) == TcpConstants.SNR_AVAILABLE ? 1 : 0)));
 
         // Center frequency (7 bytes, big-endian uint56)
         byte[] freqBytes = longToUint56(centerFrequencyHz);

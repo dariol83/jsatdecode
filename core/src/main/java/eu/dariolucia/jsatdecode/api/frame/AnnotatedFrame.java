@@ -38,6 +38,15 @@ public record AnnotatedFrame(byte[] data, long timestampNanos, Map<String, Objec
     }
 
     /**
+     * Returns the payload length without allocating a defensive copy.
+     *
+     * @return number of frame bytes
+     */
+    public int dataLength() {
+        return data.length;
+    }
+
+    /**
      * Compares payload contents and metadata.
      *
      * @param other candidate

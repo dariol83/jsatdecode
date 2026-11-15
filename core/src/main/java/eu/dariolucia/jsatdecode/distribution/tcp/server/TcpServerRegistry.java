@@ -1,121 +1,85 @@
 package eu.dariolucia.jsatdecode.distribution.tcp.server;
 
+import eu.dariolucia.jsatdecode.api.lifecycle.ComponentState;
+import eu.dariolucia.jsatdecode.distribution.tcp.TcpSettings;
+
+import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Objects;
 
-/**
- * Registry for managing shared TCP server instances.
- *
- * <p>This registry allows multiple distributors (FrameDistributor and MonitoringDistributor)
- * to share a single TcpServer instance for the same port. This ensures that a single TCP/IP
- * connection can deliver frames, monitoring snapshots, and events as required by the JTDP v1
- * protocol specification.
- *
- * <p>When the first distributor for a given port is created, it registers its server with this
- * registry. Subsequent distributors for the same port will receive the already-created server
- * instead of creating a new one.
- *
- * <p>The registry uses a ConcurrentHashMap for thread-safe access from multiple distributors
- * that may be initialized concurrently.
- *
- * <h2>Thread Safety</h2>
- * <p>This class is thread-safe. All methods can be called from multiple threads concurrently.
- *
- * <h2>Lifecycle Management</h2>
- * <p>The first distributor to create a server for a port is responsible for starting it.
- * The last distributor to release the server is responsible for stopping it.
- * However, in the current implementation, the JSatDecode runtime manages distributor
- * lifecycle, and the server is stopped when the first distributor that created it is stopped.
- *
- * @see TcpServer
- */
+/** Owns the listener lifecycle shared by factory-created TCP adapters. */
 public final class TcpServerRegistry {
+    private static final Map<Integer, TcpServer> serversByPort = new HashMap<>();
+    private static final Map<Integer, Integer> referenceCounts = new HashMap<>();
 
-    private static final Map<Integer, TcpServer> serversByPort = new ConcurrentHashMap<>();
-    private static final Map<Integer, Integer> referenceCounts = new ConcurrentHashMap<>();
+    private TcpServerRegistry() { }
 
-    /**
-     * Private constructor to prevent instantiation.
-     */
-    private TcpServerRegistry() {
-        // Utility class
-    }
-
-    /**
-     * Gets or creates a TCP server for the specified port.
-     *
-     * <p>If a server for the given port already exists in the registry, it is returned.
-     * Otherwise, a new server is created using the provided settings and registered.
-     *
-     * @param settings The TCP settings containing the port
-     * @return The TCP server instance for the specified port
-     */
-    public static synchronized TcpServer getOrCreateServer(eu.dariolucia.jsatdecode.distribution.tcp.TcpSettings settings) {
-        int port = settings.port();
-        
-        TcpServer server = serversByPort.get(port);
-        if (server != null) {
-            // Server already exists, increment reference count and return it
-            referenceCounts.merge(port, 1, Integer::sum);
-            return server;
+    /** Acquires a construction reference, validating shared transport settings. */
+    public static synchronized TcpServer getOrCreateServer(TcpSettings settings) {
+        Objects.requireNonNull(settings, "settings");
+        TcpServer server = serversByPort.get(settings.port());
+        if (server == null) {
+            server = new TcpServer(settings);
+            serversByPort.put(settings.port(), server);
+            referenceCounts.put(settings.port(), 1);
+        } else {
+            validateCompatible(server.getSettings(), settings);
+            referenceCounts.merge(settings.port(), 1, Integer::sum);
         }
-
-        // Create new server
-        server = new TcpServer(settings);
-        serversByPort.put(port, server);
-        referenceCounts.put(port, 1);
-        
         return server;
     }
 
-    /**
-     * Releases a reference to a TCP server.
-     *
-     * <p>When the last reference to a server is released, the server is removed from
-     * the registry. Note: The server itself is not stopped by this method; it remains
-     * running until explicitly stopped by the runtime.
-     *
-     * @param port The port of the server to release
-     */
-    public static synchronized void releaseServer(int port) {
-        Integer count = referenceCounts.get(port);
-        if (count != null) {
-            if (count <= 1) {
-                serversByPort.remove(port);
-                referenceCounts.remove(port);
-            } else {
-                referenceCounts.put(port, count - 1);
-            }
+    private static void validateCompatible(TcpSettings existing, TcpSettings requested) {
+        if (existing.port() != requested.port() ||
+                existing.keepalive() != requested.keepalive() ||
+                existing.maxClients() != requested.maxClients() ||
+                existing.sendBufferBytes() != requested.sendBufferBytes() ||
+                existing.receiveBufferBytes() != requested.receiveBufferBytes() ||
+                existing.tcpNoDelay() != requested.tcpNoDelay() ||
+                existing.maxMessageBytes() != requested.maxMessageBytes() ||
+                existing.clientQueueBytes() != requested.clientQueueBytes() ||
+                existing.sourceId() != requested.sourceId()) {
+            throw new IllegalArgumentException("TCP adapters on port " + requested.port() +
+                    " must agree on shared transport settings and source_id");
         }
     }
 
-    /**
-     * Gets a registered server for the specified port without creating one.
-     *
-     * @param port The port to look up
-     * @return The registered server, or null if none exists
-     */
-    public static TcpServer getServer(int port) {
-        return serversByPort.get(port);
+    /** Starts the acquired server once, regardless of adapter start order. */
+    public static synchronized void startServer(TcpServer server) throws Exception {
+        Objects.requireNonNull(server, "server");
+        if (serversByPort.get(server.getPort()) != server) {
+            throw new IllegalArgumentException("Server is not acquired from the registry");
+        }
+        if (server.state() == ComponentState.CONFIGURED) {
+            server.start();
+        } else if (server.state() != ComponentState.RUNNING) {
+            throw new IllegalStateException("Shared server cannot start in state " + server.state());
+        }
     }
 
-    /**
-     * Checks if a server is registered for the specified port.
-     *
-     * @param port The port to check
-     * @return true if a server is registered for this port
-     */
-    public static boolean hasServer(int port) {
-        return serversByPort.containsKey(port);
+    /** Releases a construction reference and closes the last shared listener. */
+    public static synchronized void releaseServer(int port) {
+        Integer count = referenceCounts.get(port);
+        if (count == null) {
+            return;
+        }
+        if (count > 1) {
+            referenceCounts.put(port, count - 1);
+        } else {
+            TcpServer server = serversByPort.remove(port);
+            referenceCounts.remove(port);
+            server.close();
+        }
     }
 
-    /**
-     * Clears all registered servers.
-     *
-     * <p>This method is intended for testing purposes only. In production, servers
-     * should be properly released using {@link #releaseServer(int)}.
-     */
-    public static void clearAll() {
+    public static synchronized TcpServer getServer(int port) { return serversByPort.get(port); }
+    public static synchronized boolean hasServer(int port) { return serversByPort.containsKey(port); }
+
+    /** Testing cleanup also closes listeners, avoiding orphan sockets. */
+    public static synchronized void clearAll() {
+        for (TcpServer server : serversByPort.values()) {
+            server.close();
+        }
         serversByPort.clear();
         referenceCounts.clear();
     }

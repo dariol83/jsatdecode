@@ -1,450 +1,227 @@
 package eu.dariolucia.jsatdecode.distribution.tcp.server;
 
 import eu.dariolucia.jsatdecode.api.distribution.OverflowPolicy;
-import eu.dariolucia.jsatdecode.distribution.tcp.codec.TcpConstants;
-import eu.dariolucia.jsatdecode.distribution.tcp.codec.TcpMessageEncoder;
 import eu.dariolucia.jsatdecode.distribution.tcp.codec.TcpMessageDecoder;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.ArrayDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Handles I/O for a single TCP client connection.
- *
- * <p>Each client connection has its own handler that:
- * <ul>
- *   <li>Reads incoming data (though v1 doesn't require client-to-server messages)</li>
- *   <li>Maintains an outbound message queue with byte limit enforcement</li>
- *   <li>Sends messages to the client with backpressure handling</li>
- * </ul>
- *
- * <p>The handler implements the slow client policy by disconnecting clients that
- * exceed the configured queue byte limit.
- *
- * <h2>Thread Safety</h2>
- * <p>This class is thread-safe. Messages can be enqueued from any thread.
- * The run() method should only be called once from a single thread.
+ * An independently queued connection. Reservations include the message currently
+ * being written. No socket operation is performed by an enqueue caller.
  */
 public final class ClientHandler {
-
     private final TcpServer server;
     private final long clientId;
     private final Socket socket;
     private final OutputStream outputStream;
     private final int maxQueueBytes;
-    private final OverflowPolicy overflowPolicy;
-    private final int sourceId;
     private final int maxMessageBytes;
-
-    private final ConcurrentLinkedQueue<byte[]> messageQueue = new ConcurrentLinkedQueue<>();
-    private final AtomicLong queueBytes = new AtomicLong(0);
-    private final AtomicBoolean closed = new AtomicBoolean(false);
-    
-    // Flag to prevent recursion when emitting data discarded events
-    private final ThreadLocal<Boolean> emittingDataDiscarded = ThreadLocal.withInitial(() -> false);
-
-    // Statistics
-    private final AtomicLong messagesSent = new AtomicLong(0);
-    private final AtomicLong bytesSent = new AtomicLong(0);
-    private final AtomicLong errors = new AtomicLong(0);
-    private volatile long connectTimeNanos;
-    private volatile long lastActivityNanos;
-
-    // Decoder for incoming messages (though v1 server doesn't expect any)
-    private final TcpMessageDecoder decoder;
+    private final Object queueLock = new Object();
+    private final ArrayDeque<byte[]> messageQueue = new ArrayDeque<>();
+    private final AtomicBoolean closed = new AtomicBoolean();
+    private long queueBytes;
+    private boolean draining;
+    private final AtomicLong messagesSent = new AtomicLong();
+    private final AtomicLong bytesSent = new AtomicLong();
+    private final AtomicLong errors = new AtomicLong();
+    private final long connectTimeNanos = System.nanoTime();
+    private volatile long lastActivityNanos = connectTimeNanos;
 
     /**
-     * Creates a new client handler.
-     *
-     * @param server         The parent server
-     * @param clientId       The unique client identifier
-     * @param socket         The client socket
-     * @param maxQueueBytes  The maximum queue size in bytes
-     * @param maxMessageBytes The maximum message size
-     * @param overflowPolicy The overflow policy for handling slow clients
-     * @param sourceId       The source identifier for event encoding
-     * @throws IOException if the output stream cannot be obtained
+     * The policy and source arguments are retained for source compatibility:
+     * producer overflow policies never apply to network queues.
      */
-    public ClientHandler(
-            TcpServer server, long clientId, Socket socket,
-            int maxQueueBytes, int maxMessageBytes,
-            OverflowPolicy overflowPolicy, int sourceId) throws IOException {
+    public ClientHandler(TcpServer server, long clientId, Socket socket,
+                         int maxQueueBytes, int maxMessageBytes,
+                         OverflowPolicy overflowPolicy, int sourceId) throws IOException {
+        if (maxQueueBytes <= 0) {
+            throw new IllegalArgumentException("Client queue bytes must be positive");
+        }
         this.server = server;
         this.clientId = clientId;
         this.socket = socket;
         this.outputStream = socket.getOutputStream();
         this.maxQueueBytes = maxQueueBytes;
-        this.overflowPolicy = overflowPolicy != null ? overflowPolicy : OverflowPolicy.FAIL_RUNTIME;
-        this.sourceId = sourceId;
         this.maxMessageBytes = maxMessageBytes;
-        this.connectTimeNanos = System.nanoTime();
-        this.lastActivityNanos = connectTimeNanos;
-        this.decoder = new TcpMessageDecoder(maxMessageBytes);
     }
 
-    /**
-     * Gets the client identifier.
-     *
-     * @return The client identifier
-     */
-    public long getClientId() {
-        return clientId;
-    }
+    public long getClientId() { return clientId; }
+    public Socket getSocket() { return socket; }
+    public String getRemoteAddress() { return String.valueOf(socket.getRemoteSocketAddress()); }
+    public boolean isClosed() { return closed.get(); }
 
-    /**
-     * Gets the client socket.
-     *
-     * @return The client socket
-     */
-    public Socket getSocket() {
-        return socket;
-    }
-
-    /**
-     * Returns the remote address.
-     *
-     * @return The remote address as a string
-     */
-    public String getRemoteAddress() {
-        if (socket != null) {
-            return socket.getRemoteSocketAddress().toString();
-        }
-        return "unknown";
-    }
-
-    /**
-     * Checks if the handler is closed.
-     *
-     * @return true if closed
-     */
-    public boolean isClosed() {
-        return closed.get();
-    }
-
-    /**
-     * Enqueues a message for transmission.
-     *
-     * <p>If the queue byte limit would be exceeded, the behavior depends on
-     * the overflow policy:
-     * <ul>
-     *   <li>FAIL_RUNTIME: disconnect the client</li>
-     *   <li>DROP_NEWEST: drop the new message and emit EVENT_DATA_DISCARDED</li>
-     *   <li>DROP_OLDEST: drop the oldest message and emit EVENT_DATA_DISCARDED</li>
-     * </ul>
-     *
-     * @param message The message bytes to send
-     */
+    /** Enqueues one complete immutable message, or disconnects on byte overflow. */
     public void enqueueMessage(byte[] message) {
-        if (message == null || message.length == 0 || closed.get()) {
+        if (message == null || message.length == 0) {
             return;
         }
-
-        // Check if adding this message would exceed the queue limit
-        long currentQueueBytes = queueBytes.get();
-        long newQueueBytes = currentQueueBytes + message.length;
-
-        if (newQueueBytes > maxQueueBytes) {
-            // Exceeded queue limit - handle based on overflow policy
-            if (overflowPolicy == OverflowPolicy.FAIL_RUNTIME) {
-                // Disconnect the client
-                close();
+        boolean overflow;
+        synchronized (queueLock) {
+            if (closed.get() || draining) {
                 return;
             }
-
-            // For DROP_NEWEST or DROP_OLDEST, emit EVENT_DATA_DISCARDED
-            emitDataDiscardedEvent();
-
-            if (overflowPolicy == OverflowPolicy.DROP_NEWEST) {
-                // Drop the new message - do not add to queue
-                return;
-            } else if (overflowPolicy == OverflowPolicy.DROP_OLDEST) {
-                // Drop the oldest message to make room
-                byte[] oldest = messageQueue.poll();
-                if (oldest != null) {
-                    queueBytes.addAndGet(-oldest.length);
-                    // Now add the new message
-                    messageQueue.offer(message);
-                    queueBytes.addAndGet(message.length);
-                    lastActivityNanos = System.nanoTime();
-                }
-                return;
+            overflow = message.length > maxQueueBytes - queueBytes;
+            if (!overflow) {
+                messageQueue.addLast(message);
+                queueBytes += message.length;
+                lastActivityNanos = System.nanoTime();
+                queueLock.notifyAll();
+            } else {
+                // Close under the reservation lock: no competing enqueue can slip in.
+                markClosed();
             }
         }
-
-        // Add to queue
-        messageQueue.offer(message);
-        queueBytes.addAndGet(message.length);
-        lastActivityNanos = System.nanoTime();
+        if (overflow) {
+            finishClose();
+        }
     }
 
-    /**
-     * Runs the client handler's I/O loop.
-     */
+    /** Runs the writer; a separate reader detects EOF even while writes stall. */
     public void run() {
+        Thread.ofVirtual().name("jsatdecode-tcp-reader-" + clientId).start(this::readLoop);
         try {
-            // Set a read timeout on the socket to avoid blocking forever
-            socket.setSoTimeout(100);
-
-            // Main loop
             while (!closed.get()) {
-                try {
-                    // Try to send queued messages first
-                    boolean sentSomething = sendMessages();
-
-                    if (sentSomething) {
-                        continue;
+                byte[] message;
+                synchronized (queueLock) {
+                    while (messageQueue.isEmpty() && !closed.get() && !draining) {
+                        queueLock.wait();
                     }
-
-                    // No messages to send, check for incoming data
-                    // Note: v1 protocol doesn't define any client-to-server messages,
-                    // but we read to keep the connection alive and detect disconnections
-                    if (readIncomingData()) {
-                        lastActivityNanos = System.nanoTime();
-                    } else {
-                        // No activity, check if connection is still alive
-                        if (socket != null && !socket.isClosed() && socket.isConnected()) {
-                            // Connection is idle, wait a bit
-                            try {
-                                Thread.sleep(10);
-                            } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt();
-                                break;
-                            }
-                        } else {
-                            // Connection closed by client
-                            break;
-                        }
+                    if (closed.get() || messageQueue.isEmpty()) {
+                        break;
                     }
-
-                } catch (java.net.SocketTimeoutException e) {
-                    // Read timeout - no data available, this is normal
-                    // Do nothing, just continue the loop
-                } catch (IOException e) {
-                    // Connection error
-                    errors.incrementAndGet();
-                    server.recordError();
-                    close();
-                    break;
-                } catch (Exception e) {
-                    // Unexpected error
-                    errors.incrementAndGet();
-                    server.recordError();
-                    close();
-                    break;
+                    message = messageQueue.removeFirst();
                 }
+                // Keep the reservation until the entire write and flush finish.
+                outputStream.write(message);
+                outputStream.flush();
+                synchronized (queueLock) {
+                    if (!closed.get()) {
+                        queueBytes -= message.length;
+                    }
+                    queueLock.notifyAll();
+                }
+                messagesSent.incrementAndGet();
+                bytesSent.addAndGet(message.length);
+                server.recordMessageSent(message.length);
+                lastActivityNanos = System.nanoTime();
             }
-
-        } catch (Exception e) {
-            errors.incrementAndGet();
-            server.recordError();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (IOException | RuntimeException e) {
+            recordFailure();
         } finally {
             close();
         }
     }
 
-    /**
-     * Attempts to send queued messages.
-     *
-     * @return true if at least one message was sent
-     * @throws IOException if an I/O error occurs
-     */
-    private boolean sendMessages() throws IOException {
-        boolean sentSomething = false;
-
-        while (!closed.get() && !messageQueue.isEmpty()) {
-            byte[] message = messageQueue.peek();
-            if (message == null) {
-                break;
+    private void readLoop() {
+        try {
+            InputStream input = socket.getInputStream();
+            byte[] buffer = new byte[1024];
+            // Avoid allocating a receive decoder for peers that never transmit.
+            TcpMessageDecoder decoder = null;
+            while (!closed.get()) {
+                int count = input.read(buffer);
+                if (count < 0) {
+                    break;
+                }
+                if (count > 0) {
+                    if (decoder == null) {
+                        decoder = new TcpMessageDecoder(maxMessageBytes);
+                    }
+                    decoder.feed(buffer, 0, count);
+                    while (decoder.poll() != null) {
+                        // JTDP v1 has no client-to-server application stream.
+                    }
+                    lastActivityNanos = System.nanoTime();
+                }
             }
-
-            try {
-                outputStream.write(message);
-                outputStream.flush();
-
-                // Message sent successfully
-                messageQueue.poll();
-                queueBytes.addAndGet(-message.length);
-                messagesSent.incrementAndGet();
-                server.recordMessageSent(message.length);
-                bytesSent.addAndGet(message.length);
-                sentSomething = true;
-                lastActivityNanos = System.nanoTime();
-
-            } catch (IOException e) {
-                // Write failed
-                throw e;
-            }
+        } catch (IOException | RuntimeException e) {
+            recordFailure();
+        } finally {
+            close();
         }
-
-        return sentSomething;
     }
 
-    /**
-     * Reads incoming data from the client.
-     *
-     * <p>Note: v1 protocol doesn't define any client-to-server messages,
-     * but we read to keep the connection alive and detect disconnections.
-     *
-     * @return true if data was read, false if connection closed
-     * @throws IOException if an I/O error occurs
-     */
-    private boolean readIncomingData() throws IOException {
-        byte[] buffer = new byte[1024];
-        int bytesRead = socket.getInputStream().read(buffer);
+    private void recordFailure() {
+        if (!closed.get()) {
+            errors.incrementAndGet();
+            server.recordError();
+        }
+    }
 
-        if (bytesRead == -1) {
-            // EOF - client disconnected
+    /** Prevents new messages and finishes already accepted messages. */
+    void beginDrain() {
+        synchronized (queueLock) {
+            draining = true;
+            queueLock.notifyAll();
+        }
+    }
+
+    /** Waits against the server's shared monotonic shutdown deadline. */
+    void awaitDrained(long deadlineNanos) throws InterruptedException {
+        synchronized (queueLock) {
+            long remaining;
+            while (queueBytes > 0 && !closed.get() &&
+                    (remaining = deadlineNanos - System.nanoTime()) > 0) {
+                queueLock.wait(remaining / 1_000_000, (int) (remaining % 1_000_000));
+            }
+        }
+    }
+
+    /** Detaches immediately; socket close runs away from producer threads. */
+    public void close() {
+        boolean changed;
+        synchronized (queueLock) {
+            changed = markClosed();
+        }
+        if (changed) {
+            finishClose();
+        }
+    }
+
+    private boolean markClosed() {
+        if (!closed.compareAndSet(false, true)) {
             return false;
         }
-
-        if (bytesRead > 0) {
-            // Feed to decoder (though we don't expect any valid messages)
-            decoder.feed(buffer, 0, bytesRead);
-            return true;
-        }
-
-        return false;
+        messageQueue.clear();
+        queueBytes = 0;
+        queueLock.notifyAll();
+        return true;
     }
 
-    /**
-     * Closes the client handler and cleans up resources.
-     */
-    public void close() {
-        if (closed.compareAndSet(false, true)) {
+    private void finishClose() {
+        server.unregisterClient(this);
+        // OutputStream.close can acquire a blocked writer's lock. Closing the
+        // socket wakes both I/O tasks without closing that stream separately.
+        Thread.ofVirtual().name("jsatdecode-tcp-close-" + clientId).start(() -> {
             try {
-                if (outputStream != null) {
-                    try {
-                        outputStream.close();
-                    } catch (IOException e) {
-                        // Ignore
-                    }
-                }
-                if (socket != null && !socket.isClosed()) {
-                    try {
-                        socket.close();
-                    } catch (IOException e) {
-                        // Ignore
-                    }
-                }
-            } finally {
-                server.unregisterClient(this);
-                messageQueue.clear();
+                socket.close();
+            } catch (IOException ignored) {
+                // Best effort after the handler has already detached.
             }
-        }
+        });
     }
 
-    /**
-     * Gets the connect time in nanoseconds.
-     *
-     * @return The connect time
-     */
-    public long getConnectTimeNanos() {
-        return connectTimeNanos;
-    }
-
-    /**
-     * Gets the last activity time in nanoseconds.
-     *
-     * @return The last activity time
-     */
-    public long getLastActivityNanos() {
-        return lastActivityNanos;
-    }
-
-    /**
-     * Gets the number of messages sent.
-     *
-     * @return The message count
-     */
-    public long getMessagesSent() {
-        return messagesSent.get();
-    }
-
-    /**
-     * Gets the number of bytes sent.
-     *
-     * @return The byte count
-     */
-    public long getBytesSent() {
-        return bytesSent.get();
-    }
-
-    /**
-     * Gets the number of errors.
-     *
-     * @return The error count
-     */
-    public long getErrors() {
-        return errors.get();
-    }
-
-    /**
-     * Emits a DATA_DISCARDED event to all clients.
-     * This is called when a client cannot keep up with the distribution rate
-     * and the overflow policy is DROP_NEWEST or DROP_OLDEST.
-     */
-    private void emitDataDiscardedEvent() {
-        // Prevent recursion - if we're already emitting a data discarded event, don't emit another
-        if (emittingDataDiscarded.get()) {
-            return;
-        }
-        
-        emittingDataDiscarded.set(true);
-        try {
-            // Create a temporary encoder for this event
-            TcpMessageEncoder encoder = new TcpMessageEncoder(sourceId, maxMessageBytes);
-            
-            // Create event message with current timestamp
-            long timestampNanos = System.nanoTime();
-            
-            // Create a simple event message - we use 0 for status and frequency
-            // as we don't have access to current monitoring state here
-            byte statusByte = 0;
-            long centerFrequencyHz = 0;
-            
-            // Encode the event
-            eu.dariolucia.jsatdecode.distribution.tcp.codec.EventMessage eventMsg = 
-                    new eu.dariolucia.jsatdecode.distribution.tcp.codec.EventMessage(
-                            TcpConstants.EVENT_DATA_DISCARDED, 
-                            timestampNanos, 
-                            statusByte, 
-                            centerFrequencyHz
-                    );
-            byte[] eventBytes = encoder.encodeEvent(eventMsg);
-            
-            if (eventBytes != null) {
-                // Broadcast to all clients including this one
-                server.broadcast(eventBytes);
-            }
-        } catch (Exception e) {
-            // Log and ignore - we don't want to fail the enqueue due to event emission
-            server.recordError();
-        } finally {
-            emittingDataDiscarded.remove();
-        }
-    }
-
-    /**
-     * Gets the current queue size in bytes.
-     *
-     * @return The queue size in bytes
-     */
+    public long getConnectTimeNanos() { return connectTimeNanos; }
+    public long getLastActivityNanos() { return lastActivityNanos; }
+    public long getMessagesSent() { return messagesSent.get(); }
+    public long getBytesSent() { return bytesSent.get(); }
+    public long getErrors() { return errors.get(); }
     public long getQueueBytes() {
-        return queueBytes.get();
+        synchronized (queueLock) { return queueBytes; }
     }
 
     @Override
     public String toString() {
-        return "ClientHandler[" +
-                "id=" + clientId + ", " +
-                "remote=" + getRemoteAddress() + ", " +
-                "messages=" + messagesSent.get() + ", " +
-                "bytes=" + bytesSent.get() + ", " +
-                "closed=" + closed.get() +
-                "]";
+        return "ClientHandler[id=" + clientId + ", remote=" + getRemoteAddress() +
+                ", messages=" + messagesSent.get() + ", bytes=" + bytesSent.get() +
+                ", closed=" + closed.get() + "]";
     }
 }

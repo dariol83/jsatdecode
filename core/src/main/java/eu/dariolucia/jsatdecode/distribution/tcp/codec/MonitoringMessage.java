@@ -2,7 +2,6 @@ package eu.dariolucia.jsatdecode.distribution.tcp.codec;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.util.Objects;
 
 /**
  * Represents a monitoring snapshot message (type 1).
@@ -65,7 +64,7 @@ public record MonitoringMessage(
      * @throws IllegalArgumentException if any parameter is invalid
      */
     public MonitoringMessage {
-        if (centerFrequencyHz < 0) {
+        if (centerFrequencyHz < 0 || centerFrequencyHz >= (1L << 56)) {
             throw new IllegalArgumentException("Center frequency must be non-negative: " + centerFrequencyHz);
         }
         if (totalDecodedFrames < 0) {
@@ -167,7 +166,8 @@ public record MonitoringMessage(
         buffer.order(ByteOrder.BIG_ENDIAN);
 
         // Status byte (1 byte)
-        buffer.put(statusByte);
+        boolean available = isSnrAvailable();
+        buffer.put((byte) ((statusByte & ~TcpConstants.STATUS_SNR_MASK) | (available ? 1 : 0)));
 
         // Center frequency (7 bytes, big-endian uint56)
         // We need to encode a 56-bit unsigned value
@@ -178,7 +178,7 @@ public record MonitoringMessage(
         buffer.putInt(carrierOffsetHz);
 
         // SNR (4 bytes, IEEE-754 binary32)
-        buffer.putFloat(snrDb);
+        buffer.putFloat(available ? snrDb : Float.NaN);
 
         // Counters (4 bytes each, unsigned uint32)
         // Java doesn't have unsigned int, so we use long and cast

@@ -1,7 +1,7 @@
 package eu.dariolucia.jsatdecode.distribution.tcp.codec;
 
 import java.nio.ByteBuffer;
-import java.util.Objects;
+import java.nio.ByteOrder;
 
 /**
  * Represents the 8-byte header of a JTDP v1 message.
@@ -20,7 +20,7 @@ import java.util.Objects;
  * @param magic       The magic byte (must be 0xA5)
  * @param type        The message type (0=frame, 1=monitoring, 2=event)
  * @param sourceId    The antenna/decoder identifier (0-65535)
- * @param length      The total message length including header (8 to 2^32-1)
+ * @param length      Raw uint32 bits of the total message length; use unsignedLength() for its numeric value
  */
 public record TcpMessageHeader(byte magic, byte type, int sourceId, int length) {
 
@@ -34,20 +34,16 @@ public record TcpMessageHeader(byte magic, byte type, int sourceId, int length) 
      * @throws IllegalArgumentException if any parameter is invalid
      */
     public TcpMessageHeader {
-        Objects.requireNonNull(magic, "magic cannot be null");
         if (magic != TcpConstants.MAGIC) {
             throw new IllegalArgumentException("Invalid magic byte: expected 0xA5, got 0x" +
                     Integer.toHexString(magic & 0xFF));
         }
-        if (!TcpConstants.isValidType(type) && !TcpConstants.isReservedType(type)) {
-            throw new IllegalArgumentException("Invalid message type: " + (type & 0xFF));
-        }
         if (sourceId < 0 || sourceId > 65535) {
             throw new IllegalArgumentException("Source ID must be between 0 and 65535: " + sourceId);
         }
-        if (length < TcpConstants.MIN_MESSAGE_LENGTH) {
+        if (Integer.toUnsignedLong(length) < TcpConstants.MIN_MESSAGE_LENGTH) {
             throw new IllegalArgumentException("Message length must be at least " +
-                    TcpConstants.MIN_MESSAGE_LENGTH + ": " + length);
+                    TcpConstants.MIN_MESSAGE_LENGTH + ": " + Integer.toUnsignedLong(length));
         }
     }
 
@@ -91,7 +87,12 @@ public record TcpMessageHeader(byte magic, byte type, int sourceId, int length) 
      * @return The payload length in bytes
      */
     public int payloadLength() {
-        return length - TcpConstants.HEADER_LENGTH;
+        return Math.toIntExact(unsignedLength() - TcpConstants.HEADER_LENGTH);
+    }
+
+    /** Returns the wire uint32 length without sign extension. The int component retains its raw bits. */
+    public long unsignedLength() {
+        return Integer.toUnsignedLong(length);
     }
 
     /**
@@ -128,6 +129,7 @@ public record TcpMessageHeader(byte magic, byte type, int sourceId, int length) 
      * @return The number of bytes written (always 8)
      */
     public int encode(ByteBuffer buffer) {
+        buffer.order(ByteOrder.BIG_ENDIAN);
         buffer.put(magic);
         buffer.put(type);
         buffer.putShort((short) sourceId);
@@ -154,6 +156,7 @@ public record TcpMessageHeader(byte magic, byte type, int sourceId, int length) 
      * @throws IllegalArgumentException if the magic byte is invalid
      */
     public static TcpMessageHeader decode(ByteBuffer buffer) {
+        buffer.order(ByteOrder.BIG_ENDIAN);
         byte magic = buffer.get();
         byte type = buffer.get();
         short sourceIdShort = buffer.getShort();
@@ -190,6 +193,6 @@ public record TcpMessageHeader(byte magic, byte type, int sourceId, int length) 
             return length == TcpConstants.EVENT_MESSAGE_LENGTH;
         }
         // Frame batch can be any length >= header + at least one frame record
-        return length >= TcpConstants.HEADER_LENGTH + TcpConstants.FRAME_RECORD_OVERHEAD + 1;
+        return !isFrameBatch() || unsignedLength() >= TcpConstants.HEADER_LENGTH + TcpConstants.FRAME_RECORD_OVERHEAD + 1;
     }
 }

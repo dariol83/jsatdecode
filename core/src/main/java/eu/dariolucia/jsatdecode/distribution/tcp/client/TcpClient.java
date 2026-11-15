@@ -15,10 +15,10 @@ import java.net.ConnectException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketException;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
+import java.net.SocketTimeoutException;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -59,7 +59,7 @@ import java.util.function.Consumer;
  * The {@link #connect()}, {@link #disconnect()}, and {@link #close()} methods
  * can be called from any thread.
  */
-public final class TcpClient {
+public final class TcpClient implements AutoCloseable {
 
     private final String host;
     private final int port;
@@ -112,9 +112,15 @@ public final class TcpClient {
     public TcpClient(String host, int port) {
         this(host, port, new TcpSettings(
                 port, false, 1, 0, 0, true,
-                0, 0, 0, 1_048_576, 1_048_576, 0, 
+                3000, 1000, 5, 1_048_576, 1_048_576, 0,
                 eu.dariolucia.jsatdecode.api.distribution.OverflowPolicy.FAIL_RUNTIME
         ), 1000L, 30000L);
+    }
+
+    /** Creates a client using the endpoint, reconnect policy and wire limit parsed by TcpSettings.clientFrom. */
+    public TcpClient(TcpSettings settings) {
+        this(Objects.requireNonNull(settings, "settings").host(), settings.port(), settings,
+                settings.reconnectIntervalMs(), settings.maxReconnectIntervalMs());
     }
 
     /**
@@ -163,9 +169,9 @@ public final class TcpClient {
                 0,     // sendBufferBytes (not used by client)
                 0,     // receiveBufferBytes
                 true,  // tcpNoDelay
-                0,     // monitoringIntervalMs (not used by client)
-                0,     // maxFrameLatencyMs (not used by client)
-                0,     // maxFrameBuffer (not used by client)
+                3000,  // monitoringIntervalMs (not used by client)
+                1000,  // maxFrameLatencyMs (not used by client)
+                5,     // maxFrameBuffer (not used by client)
                 1_048_576, // maxMessageBytes
                 1_048_576, // clientQueueBytes (not used by client)
                 0,     // sourceId (not used by client)
@@ -268,7 +274,14 @@ public final class TcpClient {
         closed.set(false);
 
         // Connect to server
-        connectInternal();
+        try {
+            connectInternal();
+        } catch (IOException | RuntimeException e) {
+            running.set(false);
+            closeSocket();
+            decoder.reset();
+            throw e;
+        }
 
         // Start I/O thread
         ioThread = new Thread(this::ioLoop, "jsatdecode-tcp-client-io");
@@ -282,6 +295,7 @@ public final class TcpClient {
      * @throws IOException if connection fails
      */
     private void connectInternal() throws IOException {
+        decoder.reset();
         // Create and configure socket
         socket = new Socket();
         socket.setTcpNoDelay(settings.tcpNoDelay());
@@ -292,7 +306,7 @@ public final class TcpClient {
         }
 
         // Set timeout
-        socket.setSoTimeout(10000); // 10 seconds
+        socket.setSoTimeout(1000); // Polling timeout; silence is a valid live session.
 
         // Connect
         InetSocketAddress address = new InetSocketAddress(host, port);
@@ -323,7 +337,7 @@ public final class TcpClient {
         closeSocket();
 
         // Wait for I/O thread to finish
-        if (ioThread != null && ioThread.isAlive()) {
+        if (ioThread != null && ioThread != Thread.currentThread() && ioThread.isAlive()) {
             try {
                 ioThread.join(5000); // 5 second timeout
             } catch (InterruptedException e) {
@@ -332,12 +346,14 @@ public final class TcpClient {
         }
 
         connected.set(false);
+        decoder.reset();
         notifyStatus("Disconnected");
     }
 
     /**
      * Closes the client and releases all resources.
      */
+    @Override
     public void close() {
         disconnect();
         closed.set(true);
@@ -413,7 +429,9 @@ public final class TcpClient {
                     }
 
                     // Read data from socket
-                    int bytesRead = inputStream.read(readBuffer);
+                    InputStream stream = inputStream;
+                    if (stream == null) continue;
+                    int bytesRead = stream.read(readBuffer);
 
                     if (bytesRead == -1) {
                         // EOF - server closed connection
@@ -430,6 +448,8 @@ public final class TcpClient {
                         processMessages();
                     }
 
+                } catch (SocketTimeoutException e) {
+                    // JTDP has no heartbeat or idle deadline. Retain the current framing state.
                 } catch (SocketException e) {
                     // Socket error - connection lost
                     handleConnectionLost("Socket error: " + e.getMessage());
@@ -437,7 +457,8 @@ public final class TcpClient {
                     // I/O error
                     handleConnectionLost("I/O error: " + e.getMessage());
                 } catch (ProtocolException e) {
-                    // Protocol error
+                    // Deliver complete messages preceding the malformed boundary in the same read.
+                    processMessages();
                     handleProtocolError(e);
                 } catch (Exception e) {
                     // Unexpected error
@@ -447,6 +468,7 @@ public final class TcpClient {
         } finally {
             closeSocket();
             connected.set(false);
+            decoder.reset();
         }
     }
 
@@ -460,14 +482,16 @@ public final class TcpClient {
             return false;
         }
 
-        reconnectAttempt.incrementAndGet();
+        long attempt = reconnectAttempt.incrementAndGet();
 
         try {
             connectInternal();
             reconnects.incrementAndGet();
-            notifyStatus("Reconnected after " + reconnectAttempt.get() + " attempt(s)");
+            notifyStatus("Reconnected after " + attempt + " attempt(s); new session, data gap");
             return true;
         } catch (IOException e) {
+            closeSocket();
+            decoder.reset();
             lastError.set(e.getMessage());
             notifyError(e);
             return false;
@@ -483,13 +507,15 @@ public final class TcpClient {
         }
 
         long interval = calculateReconnectInterval();
-        nextReconnectTime.set(System.currentTimeMillis() + interval);
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(interval);
+        nextReconnectTime.set(deadline);
 
         notifyStatus("Waiting " + interval + "ms before reconnecting");
 
-        long start = System.currentTimeMillis();
-        while (running.get() && System.currentTimeMillis() - start < interval) {
-            LockSupport.parkNanos(1_000_000); // 1ms
+        while (running.get()) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) break;
+            LockSupport.parkNanos(Math.min(remaining, TimeUnit.MILLISECONDS.toNanos(20)));
         }
     }
 
@@ -499,10 +525,12 @@ public final class TcpClient {
      * @return The interval in milliseconds
      */
     private long calculateReconnectInterval() {
-        long attempt = reconnectAttempt.get();
-        // Exponential backoff: min * 2^(attempt-1), capped at max
-        long interval = minReconnectIntervalMs * (1L << Math.min(attempt - 1, 20));
-        return Math.min(interval, maxReconnectIntervalMs);
+        long doublings = Math.max(0, reconnectAttempt.get() - 1);
+        long interval = minReconnectIntervalMs;
+        while (doublings-- > 0 && interval < maxReconnectIntervalMs) {
+            interval = interval > maxReconnectIntervalMs / 2 ? maxReconnectIntervalMs : interval * 2;
+        }
+        return interval;
     }
 
     /**
@@ -513,6 +541,8 @@ public final class TcpClient {
     private void handleConnectionLost(String message) {
         connected.set(false);
         closeSocket();
+        decoder.reset();
+        if (!running.get()) return;
         lastError.set(message);
         errors.incrementAndGet();
         dataGaps.incrementAndGet();
@@ -526,7 +556,13 @@ public final class TcpClient {
      * @param e The protocol exception
      */
     private void handleProtocolError(ProtocolException e) {
+        connected.set(false);
+        closeSocket();
+        decoder.reset();
+        if (!running.get()) return;
+        lastError.set(e.getMessage());
         errors.incrementAndGet();
+        dataGaps.incrementAndGet();
         notifyError(e);
         notifyStatus("Protocol error: " + e.getMessage());
     }

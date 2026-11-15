@@ -1,416 +1,347 @@
 package eu.dariolucia.jsatdecode.distribution.tcp;
 
 import eu.dariolucia.jsatdecode.api.distribution.DistributionSnapshot;
+import eu.dariolucia.jsatdecode.api.distribution.EventSeverity;
 import eu.dariolucia.jsatdecode.api.distribution.MonitoringDistributor;
 import eu.dariolucia.jsatdecode.api.distribution.MonitoringDistributorDescriptor;
+import eu.dariolucia.jsatdecode.api.distribution.OverflowPolicy;
 import eu.dariolucia.jsatdecode.api.distribution.RuntimeEvent;
 import eu.dariolucia.jsatdecode.api.lifecycle.ComponentState;
 import eu.dariolucia.jsatdecode.api.monitoring.MonitoringSnapshot;
+import eu.dariolucia.jsatdecode.distribution.tcp.codec.EventMessage;
 import eu.dariolucia.jsatdecode.distribution.tcp.codec.TcpConstants;
 import eu.dariolucia.jsatdecode.distribution.tcp.codec.TcpMessageEncoder;
+import eu.dariolucia.jsatdecode.distribution.tcp.codec.TcpStatus;
 import eu.dariolucia.jsatdecode.distribution.tcp.server.TcpServer;
+import eu.dariolucia.jsatdecode.distribution.tcp.server.TcpServerRegistry;
+import eu.dariolucia.jsatdecode.util.UtcTime;
 
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.ArrayDeque;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.LockSupport;
 
 /**
- * TCP-based monitoring distributor implementation for JTDP v1.
- *
- * <p>This class implements the {@link MonitoringDistributor} interface, providing
- * a TCP server that distributes monitoring snapshots and runtime events to
- * connected clients using the JTDP v1 binary protocol.
- *
- * <h2>Distribution Behavior</h2>
- * <ul>
- *   <li>Monitoring snapshots are sent periodically at the configured interval</li>
- *   <li>An initial snapshot is sent when a client connects</li>
- *   <li>Runtime events are sent immediately as they occur</li>
- *   <li>All messages are broadcast to all connected clients</li>
- * </ul>
- *
- * <h2>Thread Safety</h2>
- * <p>This class is thread-safe. The {@link #publishMonitoring(MonitoringSnapshot)}
- * and {@link #publishEvent(RuntimeEvent)} methods can be called from any thread.
- *
- * <h2>Integration</h2>
- * <p>This distributor integrates with JSatDecode's distribution framework via
- * the {@link TcpMonitoringDistributorFactory} mechanism. It can be selected
- * by setting the configuration property {@code distribution.monitoring.type=tcp}.
- *
- * @see TcpMonitoringDistributorFactory
- * @see TcpServer
- * @see MonitoringDistributor
+ * Asynchronous JTDP monitoring and event producer. Snapshots and events share one
+ * bounded FIFO. Events are sent promptly; snapshots update one immutable current
+ * observation and are broadcast only at the configured monotonic cadence.
  */
 public final class TcpMonitoringDistributor implements MonitoringDistributor {
+    private record Observation(MonitoringSnapshot snapshot, byte status, long frequency, long accepted) { }
+    private record Publication(Observation observation, RuntimeEvent event) { }
+    private record OverflowNotification(long timestamp, Observation observation) { }
 
     private final TcpSettings settings;
     private final TcpServer server;
     private final TcpMessageEncoder encoder;
     private final boolean serverOwned;
-
-    // Monitoring state
-    private volatile MonitoringSnapshot lastSnapshot;
-    private final Object snapshotLock = new Object();
-
-    // Event queue
-    private final CopyOnWriteArrayList<RuntimeEvent> eventQueue = new CopyOnWriteArrayList<>();
-    private final Object eventLock = new Object();
-
-    // Periodic monitoring distribution
-    private Thread monitoringThread;
-    private final AtomicBoolean monitoringRunning = new AtomicBoolean(false);
-
-    // Statistics
-    private final AtomicLong messagesReceived = new AtomicLong(0);
-    private final AtomicLong messagesSent = new AtomicLong(0);
-    private final AtomicLong errorCounter = new AtomicLong(0);
-
-    // State management
+    private final boolean managedServer;
+    private boolean serverReleased;
+    private final Object queueLock = new Object();
+    private final ArrayDeque<Publication> queue = new ArrayDeque<>();
+    private volatile Observation current = new Observation(new MonitoringSnapshot(UtcTime.nowNanos(), Map.of()),
+            TcpConstants.encodeStatus(TcpConstants.STATE_UNKNOWN, TcpConstants.STATE_UNKNOWN,
+                    TcpConstants.STATE_UNKNOWN, TcpConstants.SNR_UNAVAILABLE), 0, 0);
+    // Coalescing overflow notifications retain constant memory even while the FIFO is full.
+    private final AtomicReference<OverflowNotification> pendingOverrun = new AtomicReference<>();
+    private final AtomicReference<OverflowNotification> pendingDiscard = new AtomicReference<>();
+    private volatile boolean accepting;
+    private Thread worker;
+    private final AtomicLong messagesReceived = new AtomicLong();
+    private final AtomicLong messagesSent = new AtomicLong();
+    private final AtomicLong messagesDropped = new AtomicLong();
+    private final AtomicLong errorCounter = new AtomicLong();
     private final AtomicReference<ComponentState> state = new AtomicReference<>(ComponentState.CONFIGURED);
     private final AtomicReference<Throwable> failure = new AtomicReference<>();
 
-    // Status tracking
-    private volatile byte lastStatusByte = 0;
-    private volatile long lastCenterFrequencyHz = 0;
-
-    /**
-     * Creates a new TCP monitoring distributor with the specified settings.
-     * This constructor creates and owns its own TcpServer instance.
-     *
-     * @param settings The TCP distribution settings
-     * @throws IllegalArgumentException if settings is null
-     */
     public TcpMonitoringDistributor(TcpSettings settings) {
-        this(settings, null);
+        this(settings, null, false);
     }
 
-    /**
-     * Creates a new TCP monitoring distributor with the specified settings and server.
-     * If server is provided, it will be shared with this distributor. If null,
-     * a new server will be created.
-     *
-     * @param settings The TCP distribution settings
-     * @param server   The TCP server to use, or null to create a new one
-     * @throws IllegalArgumentException if settings is null
-     */
+    /** Uses a caller-owned server; its lifecycle remains with the caller. */
     public TcpMonitoringDistributor(TcpSettings settings, TcpServer server) {
-        if (settings == null) {
-            throw new IllegalArgumentException("Settings cannot be null");
-        }
+        this(settings, server, false);
+    }
+
+    /** A managed server is a reference acquired from {@link TcpServerRegistry}. */
+    public TcpMonitoringDistributor(TcpSettings settings, TcpServer server, boolean managedServer) {
+        if (settings == null) throw new IllegalArgumentException("Settings cannot be null");
+        if (managedServer && server == null) throw new IllegalArgumentException("Managed server cannot be null");
         this.settings = settings;
-        this.serverOwned = (server == null);
-        this.server = (server != null) ? server : new TcpServer(settings);
+        this.serverOwned = server == null;
+        this.managedServer = managedServer;
+        this.server = server == null ? new TcpServer(settings) : server;
         this.encoder = new TcpMessageEncoder(settings.sourceId(), settings.maxMessageBytes());
     }
 
     @Override
     public MonitoringDistributorDescriptor descriptor() {
-        return new MonitoringDistributorDescriptor(
-                "tcp",
-                "JSatDecode TCP Monitoring Distributor",
-                "1",
-                "Distributes monitoring snapshots and events to TCP clients using JTDP v1 protocol"
-        );
+        return new MonitoringDistributorDescriptor("tcp", "JSatDecode TCP Monitoring Distributor", "1",
+                "Distributes monitoring snapshots and events to TCP clients using JTDP v1 protocol");
     }
 
     @Override
     public void publishMonitoring(MonitoringSnapshot snapshot) {
-        ComponentState currentState = state.get();
-        if (currentState != ComponentState.RUNNING) {
-            if (currentState == ComponentState.FAILED) {
-                throw new IllegalStateException("Distributor failed", failure.get());
-            }
-            throw new IllegalStateException("Distributor is not running: " + currentState);
+        if (snapshot == null) throw new IllegalArgumentException("Snapshot cannot be null");
+        RuntimeException overflowFailure;
+        boolean overflow;
+        synchronized (queueLock) {
+            requireRunning();
+            messagesReceived.incrementAndGet();
+            Observation observation = new Observation(snapshot, TcpStatus.snapshotStatus(snapshot),
+                    TcpStatus.centerFrequency(snapshot), server.getFramesAccepted());
+            overflow = queue.size() == settings.queueCapacity();
+            overflowFailure = enqueue(new Publication(observation, null));
         }
-
-        if (snapshot == null) {
-            throw new IllegalArgumentException("Snapshot cannot be null");
-        }
-
-        messagesReceived.incrementAndGet();
-
-        synchronized (snapshotLock) {
-            lastSnapshot = snapshot;
-        }
-
-        // Extract status information
-        updateStatusFromSnapshot(snapshot);
-
-        // Send immediately to all clients
-        sendMonitoringSnapshot(snapshot);
-    }
-
-    /**
-     * Updates status byte and center frequency from a monitoring snapshot.
-     *
-     * @param snapshot The monitoring snapshot
-     */
-    private void updateStatusFromSnapshot(MonitoringSnapshot snapshot) {
-        int carrierState = TcpConstants.STATE_UNKNOWN;
-        int symbolState = TcpConstants.STATE_UNKNOWN;
-        int frameState = TcpConstants.STATE_UNKNOWN;
-        int snrAvailable = TcpConstants.SNR_UNAVAILABLE;
-
-        Object carrierObj = snapshot.values().get("carrier_state");
-        if (carrierObj instanceof Number) {
-            carrierState = ((Number) carrierObj).intValue();
-        }
-
-        Object symbolObj = snapshot.values().get("symbol_state");
-        if (symbolObj instanceof Number) {
-            symbolState = ((Number) symbolObj).intValue();
-        }
-
-        Object frameObj = snapshot.values().get("frame_state");
-        if (frameObj instanceof Number) {
-            frameState = ((Number) frameObj).intValue();
-        }
-
-        Object snrObj = snapshot.values().get("snr_db");
-        if (snrObj instanceof Number) {
-            float snr = ((Number) snrObj).floatValue();
-            if (Float.isFinite(snr)) {
-                snrAvailable = TcpConstants.SNR_AVAILABLE;
-            }
-        }
-
-        lastStatusByte = TcpConstants.encodeStatus(carrierState, symbolState, frameState, snrAvailable);
-
-        Object freqObj = snapshot.values().get("center_frequency_hz");
-        if (freqObj instanceof Number) {
-            lastCenterFrequencyHz = ((Number) freqObj).longValue();
-        }
-    }
-
-    /**
-     * Sends a monitoring snapshot to all connected clients.
-     *
-     * @param snapshot The monitoring snapshot
-     */
-    private void sendMonitoringSnapshot(MonitoringSnapshot snapshot) {
-        try {
-            byte[] message = encoder.encodeMonitoring(snapshot, lastStatusByte, lastCenterFrequencyHz);
-            if (message != null) {
-                server.broadcast(message);
-                messagesSent.incrementAndGet();
-            }
-        } catch (Exception e) {
-            errorCounter.incrementAndGet();
-            failure.compareAndSet(null, e);
-        }
+        if (overflow) server.reportProducerOverflow(overflowFailure == null);
+        if (overflowFailure != null) throw overflowFailure;
     }
 
     @Override
     public void publishEvent(RuntimeEvent event) {
-        ComponentState currentState = state.get();
-        if (currentState != ComponentState.RUNNING) {
-            if (currentState == ComponentState.FAILED) {
-                throw new IllegalStateException("Distributor failed", failure.get());
-            }
-            throw new IllegalStateException("Distributor is not running: " + currentState);
+        if (event == null) throw new IllegalArgumentException("Event cannot be null");
+        RuntimeException overflowFailure;
+        boolean overflow;
+        synchronized (queueLock) {
+            requireRunning();
+            messagesReceived.incrementAndGet();
+            if (TcpStatus.mapEventCode(event.type()) == -1) return;
+            Observation prior = current;
+            Observation observation = new Observation(prior.snapshot(), TcpStatus.eventStatus(event, prior.status()),
+                    TcpStatus.eventCenterFrequency(event, prior.frequency()), prior.accepted());
+            overflow = queue.size() == settings.queueCapacity();
+            overflowFailure = enqueue(new Publication(observation, event));
         }
-
-        if (event == null) {
-            throw new IllegalArgumentException("Event cannot be null");
-        }
-
-        messagesReceived.incrementAndGet();
-
-        synchronized (eventLock) {
-            eventQueue.add(event);
-        }
-
-        // Send immediately to all clients
-        sendEvent(event);
+        if (overflow) server.reportProducerOverflow(overflowFailure == null);
+        if (overflowFailure != null) throw overflowFailure;
     }
 
-    /**
-     * Sends an event to all connected clients.
-     *
-     * @param event The runtime event
-     */
-    private void sendEvent(RuntimeEvent event) {
-        try {
-            byte[] message = encoder.encodeEvent(event, lastStatusByte, lastCenterFrequencyHz);
-            if (message != null) {
-                server.broadcast(message);
-                messagesSent.incrementAndGet();
+    /** Called with queueLock held; no encoding or server enqueue occurs on producers. */
+    private RuntimeException enqueue(Publication publication) {
+        RuntimeException overflowFailure = null;
+        boolean accepted = true;
+        if (queue.size() == settings.queueCapacity()) {
+            messagesDropped.incrementAndGet();
+            if (settings.overflowPolicy() == OverflowPolicy.DROP_OLDEST) {
+                queue.removeFirst();
+            } else {
+                accepted = false;
+                if (settings.overflowPolicy() == OverflowPolicy.FAIL_RUNTIME) {
+                    overflowFailure = new IllegalStateException("TCP monitoring producer queue overflow");
+                    failure.compareAndSet(null, overflowFailure);
+                    errorCounter.incrementAndGet();
+                    accepting = false;
+                    state.set(ComponentState.FAILED);
+                }
             }
-        } catch (Exception e) {
-            errorCounter.incrementAndGet();
-            failure.compareAndSet(null, e);
+        }
+        if (accepted) {
+            queue.addLast(publication);
+            current = publication.observation();
+        }
+        queueLock.notifyAll();
+        return overflowFailure;
+    }
+
+    private void requireRunning() {
+        if (state.get() != ComponentState.RUNNING || !accepting) {
+            throw new IllegalStateException("Distributor is not running: " + state.get(), failure.get());
+        }
+    }
+
+    private byte[] initialMonitoring() {
+        return encodeObservation(current);
+    }
+
+    private byte[] encodeObservation(Observation observation) {
+        return encoder.encodeMonitoring(observation.snapshot(), observation.status(), observation.frequency(),
+                observation.accepted());
+    }
+
+    private void producerOverflow(boolean discarded) {
+        if (!accepting) return;
+        OverflowNotification notification = new OverflowNotification(UtcTime.nowNanos(), current);
+        pendingOverrun.compareAndSet(null, notification);
+        if (discarded) pendingDiscard.compareAndSet(null, notification);
+        synchronized (queueLock) {
+            queueLock.notifyAll();
+        }
+    }
+
+    private void monitoringLoop() {
+        long intervalNanos = TimeUnit.MILLISECONDS.toNanos(settings.monitoringIntervalMs());
+        long nextSnapshot = System.nanoTime() + intervalNanos;
+        Observation previous = null;
+        String decoderState = null;
+        try {
+            while (true) {
+                OverflowNotification overflow = pendingOverrun.getAndSet(null);
+                if (overflow != null) sendEvent(event(overflow.timestamp(), "distribution.overrun"), overflow.observation());
+                OverflowNotification discard = pendingDiscard.getAndSet(null);
+                if (discard != null) sendEvent(event(discard.timestamp(), "data.discarded"), discard.observation());
+                long now = System.nanoTime();
+                if (accepting && now - nextSnapshot >= 0) {
+                    broadcast(encodeObservation(current));
+                    nextSnapshot = System.nanoTime() + intervalNanos;
+                }
+                Publication publication;
+                synchronized (queueLock) {
+                    publication = queue.pollFirst();
+                    if (publication == null) {
+                        if (!accepting && pendingOverrun.get() == null && pendingDiscard.get() == null) break;
+                        if (pendingOverrun.get() == null && pendingDiscard.get() == null) {
+                            TimeUnit.NANOSECONDS.timedWait(queueLock, Math.max(1, nextSnapshot - System.nanoTime()));
+                        }
+                        continue;
+                    }
+                }
+                Observation observation = publication.observation();
+                if (publication.event() != null) {
+                    sendEvent(publication.event(), observation);
+                    previous = observation;
+                } else {
+                    Object observedState = observation.snapshot().values().get("runtime.decoder_state");
+                    String newDecoderState = observedState == null ? null : observedState.toString();
+                    if (newDecoderState != null && !newDecoderState.equals(decoderState)) {
+                        if ("RUNNING".equals(newDecoderState)) {
+                            sendEvent(event(observation.snapshot().timestampNanos(), "decoder.started"), observation);
+                        } else if ("STOPPED".equals(newDecoderState) || "CLOSED".equals(newDecoderState)) {
+                            if (!"STOPPED".equals(decoderState) && !"CLOSED".equals(decoderState)) {
+                                sendEvent(event(observation.snapshot().timestampNanos(), "decoder.stopped"), observation);
+                            }
+                        } else if ("FAILED".equals(newDecoderState)) {
+                            sendEvent(event(observation.snapshot().timestampNanos(), "decoder.error"), observation);
+                        }
+                        decoderState = newDecoderState;
+                    }
+                    if (previous != null) {
+                        byte changed = (byte) (previous.status() ^ observation.status());
+                        if ((changed & TcpConstants.STATUS_CARRIER_MASK) != 0) sendEvent(event(observation.snapshot().timestampNanos(), "carrier_state_changed"), observation);
+                        if ((changed & TcpConstants.STATUS_SYMBOL_MASK) != 0) sendEvent(event(observation.snapshot().timestampNanos(), "symbol_state_changed"), observation);
+                        if ((changed & TcpConstants.STATUS_FRAME_MASK) != 0) sendEvent(event(observation.snapshot().timestampNanos(), "frame_state_changed"), observation);
+                    }
+                    previous = observation;
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            fail(e);
+        } catch (RuntimeException e) {
+            fail(e);
+        }
+    }
+
+    private static RuntimeEvent event(long timestamp, String type) {
+        return new RuntimeEvent(timestamp, EventSeverity.INFO, "tcp", type, type, Map.of());
+    }
+
+    private void sendEvent(RuntimeEvent event, Observation observation) {
+        byte code = TcpStatus.mapEventCode(event.type());
+        if (code != -1) broadcast(encoder.encodeEvent(new EventMessage(code, event.timestampNanos(),
+                observation.status(), observation.frequency())));
+    }
+
+    private void broadcast(byte[] message) {
+        server.broadcast(message);
+        messagesSent.incrementAndGet();
+    }
+
+    private void fail(Throwable error) {
+        errorCounter.incrementAndGet();
+        failure.compareAndSet(null, error);
+        synchronized (queueLock) {
+            accepting = false;
+            state.set(ComponentState.FAILED);
+            messagesDropped.addAndGet(queue.size());
+            queue.clear();
+            queueLock.notifyAll();
         }
     }
 
     @Override
     public DistributionSnapshot monitoringSnapshot() {
-        return new DistributionSnapshot(
-                isRunning(),
-                server != null && server.isRunning(),
-                messagesReceived.get(),
-                messagesSent.get(),
-                0, // messagesDropped
-                errorCounter.get(),
-                eventQueue.size(),
-                settings.maxClients(),
-                System.nanoTime()
-        );
+        synchronized (queueLock) {
+            return new DistributionSnapshot(isRunning(), server.isRunning(), messagesReceived.get(),
+                    messagesSent.get(), messagesDropped.get(), errorCounter.get(), queue.size(),
+                    settings.queueCapacity(), UtcTime.nowNanos());
+        }
     }
 
     @Override
-    public void start() throws Exception {
-        if (state.get() != ComponentState.CONFIGURED) {
+    public synchronized void start() throws Exception {
+        if (!state.compareAndSet(ComponentState.CONFIGURED, ComponentState.STARTING)) {
             throw new IllegalStateException("Distributor is one-shot: current state = " + state.get());
         }
-
-        state.set(ComponentState.STARTING);
-
         try {
-            // Start the TCP server only if we own it
-            if (serverOwned) {
-                server.start();
-            }
-
-            // Start periodic monitoring thread
-            monitoringRunning.set(true);
-            monitoringThread = new Thread(this::monitoringLoop, "jsatdecode-tcp-monitoring");
-            monitoringThread.setDaemon(true);
-            monitoringThread.start();
-
+            server.setMonitoringSupplier(this::initialMonitoring);
+            server.setProducerOverflowListener(this::producerOverflow);
+            if (serverOwned) server.start();
+            else if (managedServer) TcpServerRegistry.startServer(server);
+            accepting = true;
             state.set(ComponentState.RUNNING);
-
+            worker = new Thread(this::monitoringLoop, "jsatdecode-tcp-monitoring");
+            worker.setDaemon(true);
+            worker.start();
         } catch (Exception e) {
-            state.set(ComponentState.FAILED);
-            failure.set(e);
-            stop();
+            fail(e);
+            releaseServer();
             throw e;
         }
     }
 
-    /**
-     * The monitoring loop that sends periodic snapshots.
-     */
-    private void monitoringLoop() {
+    @Override
+    public synchronized void stop() {
+        if (state.get() == ComponentState.CLOSED || state.get() == ComponentState.STOPPED) return;
+        synchronized (queueLock) {
+            accepting = false;
+            if (state.get() != ComponentState.FAILED) state.set(ComponentState.STOPPING);
+            queueLock.notifyAll();
+        }
+        boolean interrupted = Thread.interrupted();
         try {
-            while (monitoringRunning.get() && state.get() == ComponentState.RUNNING) {
-                // Send current snapshot if available
-                MonitoringSnapshot snapshot;
-                synchronized (snapshotLock) {
-                    snapshot = lastSnapshot;
-                }
-
-                if (snapshot != null) {
-                    sendMonitoringSnapshot(snapshot);
-                }
-
-                // Wait for the configured interval
-                long intervalMs = settings.monitoringIntervalMs();
-                for (int i = 0; i < intervalMs / 100 && monitoringRunning.get(); i++) {
-                    LockSupport.parkNanos(100_000_000); // 100ms
+            if (worker != null && worker != Thread.currentThread()) {
+                while (worker.isAlive()) {
+                    try {
+                        worker.join();
+                    } catch (InterruptedException e) {
+                        interrupted = true;
+                    }
                 }
             }
-        } catch (Exception e) {
-            errorCounter.incrementAndGet();
-            failure.compareAndSet(null, e);
+            releaseServer();
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt();
         }
+        if (state.get() != ComponentState.FAILED) state.set(ComponentState.STOPPED);
+    }
+
+    private void releaseServer() {
+        if (serverReleased) return;
+        serverReleased = true;
+        server.setMonitoringSupplier(null);
+        server.setProducerOverflowListener(null);
+        if (managedServer) TcpServerRegistry.releaseServer(settings.port());
+        else if (serverOwned) server.stop();
     }
 
     @Override
-    public void stop() {
-        if (state.get() == ComponentState.CLOSED || state.get() == ComponentState.STOPPED) {
-            return;
-        }
-
-        // Signal monitoring thread to stop
-        monitoringRunning.set(false);
-
-        // Stop the server only if we own it
-        if (serverOwned) {
-            try {
-                server.stop();
-            } catch (Exception e) {
-                // Ignore
-            }
-        }
-
-        // Wait for monitoring thread to finish
-        if (monitoringThread != null && monitoringThread.isAlive()) {
-            try {
-                monitoringThread.join(5000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-
-        if (state.get() != ComponentState.FAILED) {
-            state.set(ComponentState.STOPPED);
-        }
-    }
-
-    @Override
-    public void close() {
+    public synchronized void close() {
         stop();
         state.set(ComponentState.CLOSED);
     }
 
-    @Override
-    public ComponentState state() {
-        return state.get();
-    }
-
-    /**
-     * Returns the underlying TCP server.
-     *
-     * @return The TCP server instance
-     */
-    public TcpServer getServer() {
-        return server;
-    }
-
-    /**
-     * Gets the settings used by this distributor.
-     *
-     * @return The TCP settings
-     */
-    public TcpSettings getSettings() {
-        return settings;
-    }
-
-    /**
-     * Gets the number of messages received.
-     *
-     * @return The message count
-     */
-    public long getMessagesReceived() {
-        return messagesReceived.get();
-    }
-
-    /**
-     * Gets the number of messages sent.
-     *
-     * @return The message count
-     */
-    public long getMessagesSent() {
-        return messagesSent.get();
-    }
-
-    /**
-     * Gets the first failure, if any.
-     *
-     * @return The first failure, or null
-     */
-    public Throwable getFailure() {
-        return failure.get();
-    }
+    @Override public ComponentState state() { return state.get(); }
+    public TcpServer getServer() { return server; }
+    public TcpSettings getSettings() { return settings; }
+    public long getMessagesReceived() { return messagesReceived.get(); }
+    public long getMessagesSent() { return messagesSent.get(); }
+    public long getDroppedMessages() { return messagesDropped.get(); }
+    public Throwable getFailure() { return failure.get(); }
 
     @Override
     public String toString() {
-        return "TcpMonitoringDistributor[" +
-                "state=" + state.get() + ", " +
-                "messagesReceived=" + messagesReceived.get() + ", " +
-                "messagesSent=" + messagesSent.get() + "]";
+        return "TcpMonitoringDistributor[state=" + state.get() + ", messagesReceived=" + messagesReceived.get() +
+                ", messagesSent=" + messagesSent.get() + "]";
     }
 }
