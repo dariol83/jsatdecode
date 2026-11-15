@@ -17,6 +17,8 @@ metadata; `source.start_offset` selects a position in the recording, in samples.
 [Synthetic outputs](#synthetic-outputs) |
 [ZMQ frames](#zmq-frame-output) |
 [ZMQ monitoring](#zmq-monitoring-output) |
+[TCP frames](#tcp-frame-output) |
+[TCP monitoring](#tcp-monitoring-output) | 
 [Frame files](#frame-file-output) |
 [Aliases](#legacy-aliases)
 
@@ -207,6 +209,58 @@ To select disk recording as the primary frame output instead, use this table:
 Unknown keys are rejected. Files use
 `<filename prefix>_yyyy_MM_dd_HH_mm_ss.frame.bin` with a UTC timestamp;
 existing files are never overwritten. Details: [frame recording](frame-recording.md).
+
+## TCP frame output
+
+JSatDecode TCP Binary Distribution Protocol (JTDP) v1 frame output. Select `tcp`
+explicitly. One server socket listens on a single port and distributes frames
+to all connected clients. The server also coordinates with the TCP monitoring
+distributor so that a single connection can receive frames, monitoring snapshots,
+and events. Unknown keys are rejected.
+
+| Key | Default | Purpose / allowed values |
+| --- | --- | --- |
+| `distribution.frames.type` | `synthetic` (CLI) | Set to `tcp`. |
+| `distribution.frames.port` | `6001` | TCP listen port, `1..65535`. |
+| `distribution.frames.keepalive` | `false` | Enable `SO_KEEPALIVE`. |
+| `distribution.frames.max_clients` | `2` | Maximum concurrent clients, `1..65535`. |
+| `distribution.frames.send_buffer_bytes` | OS default | Optional requested `SO_SNDBUF` size in bytes. |
+| `distribution.frames.receive_buffer_bytes` | OS default | Optional requested `SO_RCVBUF` size in bytes. |
+| `distribution.frames.tcp_nodelay` | `true` | Set `TCP_NODELAY` (disable Nagle's algorithm). |
+| `distribution.frames.max_frame_latency_s` | `1` | Maximum latency for frame batching, `0.001..86400` seconds. |
+| `distribution.frames.max_frame_buffer` | `5` | Maximum number of frames to batch, `1..65535`. |
+| `distribution.frames.max_message_bytes` | `1048576` | Maximum message size in bytes, `40..2147483647`. |
+| `distribution.frames.client_queue_bytes` | `1048576` | Maximum pending outbound bytes per client, `1..2147483647`. |
+| `distribution.frames.source_id` | `1` | Source/antenna identifier, `0..65535`. |
+| `distribution.frames.queue_capacity` | `256` | Positive integer queued-item capacity; for compatibility with other distributors. |
+| `distribution.frames.overflow_policy` | `FAIL_RUNTIME` | `FAIL_RUNTIME`, `DROP_NEWEST`, `DROP_OLDEST`. |
+
+Protocol and behavior: [TCP distribution interface](tcp-distribution-interface.md).
+
+## TCP monitoring output
+
+JSatDecode TCP Binary Distribution Protocol (JTDP) v1 monitoring and event output.
+This shares the same server socket as the TCP frame distributor when both are
+configured with type `tcp` and the same port. Select `tcp` explicitly. Unknown
+keys are rejected.
+
+| Key | Default | Purpose / allowed values |
+| --- | --- | --- |
+| `distribution.monitoring.type` | `synthetic` (CLI) | Set to `tcp`. |
+| `distribution.monitoring.port` | `6001` | TCP listen port, `1..65535`; MUST match `distribution.frames.port` when using both TCP distributors. |
+| `distribution.monitoring.keepalive` | `false` | Enable `SO_KEEPALIVE`. |
+| `distribution.monitoring.max_clients` | `2` | Maximum concurrent clients, `1..65535`; MUST match `distribution.frames.max_clients`. |
+| `distribution.monitoring.send_buffer_bytes` | OS default | Optional requested `SO_SNDBUF` size in bytes; MUST match `distribution.frames.send_buffer_bytes`. |
+| `distribution.monitoring.receive_buffer_bytes` | OS default | Optional requested `SO_RCVBUF` size in bytes; MUST match `distribution.frames.receive_buffer_bytes`. |
+| `distribution.monitoring.tcp_nodelay` | `true` | Set `TCP_NODELAY`; MUST match `distribution.frames.tcp_nodelay`. |
+| `distribution.monitoring.monitoring_interval_s` | `3` | Monitoring snapshot publication interval, `0.001..86400` seconds. |
+| `distribution.monitoring.max_message_bytes` | `1048576` | Maximum message size in bytes, `40..2147483647`; MUST match `distribution.frames.max_message_bytes`. |
+| `distribution.monitoring.client_queue_bytes` | `1048576` | Maximum pending outbound bytes per client, `1..2147483647`; MUST match `distribution.frames.client_queue_bytes`. |
+| `distribution.monitoring.source_id` | `1` | Source/antenna identifier, `0..65535`; MUST match `distribution.frames.source_id`. |
+| `distribution.monitoring.queue_capacity` | `256` | Positive integer queued-item capacity; snapshots and events share the queue. |
+| `distribution.monitoring.overflow_policy` | `FAIL_RUNTIME` | `FAIL_RUNTIME`, `DROP_NEWEST`, `DROP_OLDEST`. |
+
+Protocol and behavior: [TCP distribution interface](tcp-distribution-interface.md).
 
 ## Legacy aliases
 

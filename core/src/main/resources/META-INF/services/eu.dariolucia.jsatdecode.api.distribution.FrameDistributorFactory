@@ -1,3 +1,1 @@
-eu.dariolucia.jsatdecode.core.distribution.SyntheticFrameDistributorFactory
-eu.dariolucia.jsatdecode.distribution.zmq.ZmqFrameDistributorFactory
-eu.dariolucia.jsatdecode.distribution.zmq.FrameFileDistributorFactory
+eu.dariolucia.jsatdecode.distribution.tcp.TcpFrameDistributorFactory

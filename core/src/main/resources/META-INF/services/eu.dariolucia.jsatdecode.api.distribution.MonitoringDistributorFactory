@@ -1,2 +1,1 @@
-eu.dariolucia.jsatdecode.core.distribution.SyntheticMonitoringDistributorFactory
-eu.dariolucia.jsatdecode.distribution.zmq.ZmqMonitoringDistributorFactory
+eu.dariolucia.jsatdecode.distribution.tcp.TcpMonitoringDistributorFactory

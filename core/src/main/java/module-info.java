@@ -20,6 +20,10 @@ module eu.dariolucia.jsatdecode.core {
     exports eu.dariolucia.jsatdecode.core.monitoring;
     exports eu.dariolucia.jsatdecode.core.registry;
     exports eu.dariolucia.jsatdecode.core.runtime;
+    exports eu.dariolucia.jsatdecode.distribution.tcp;
+    exports eu.dariolucia.jsatdecode.distribution.tcp.client;
+    exports eu.dariolucia.jsatdecode.distribution.tcp.codec;
+    exports eu.dariolucia.jsatdecode.distribution.tcp.server;
     exports eu.dariolucia.jsatdecode.distribution.zmq;
     exports eu.dariolucia.jsatdecode.distribution.zmq.client;
     exports eu.dariolucia.jsatdecode.dsp.fft;
@@ -45,9 +49,11 @@ module eu.dariolucia.jsatdecode.core {
                  eu.dariolucia.jsatdecode.source.fmcomms2.Fmcomms2SourceFactory;
     provides eu.dariolucia.jsatdecode.api.distribution.FrameDistributorFactory
             with eu.dariolucia.jsatdecode.core.distribution.SyntheticFrameDistributorFactory,
+                 eu.dariolucia.jsatdecode.distribution.tcp.TcpFrameDistributorFactory,
                  eu.dariolucia.jsatdecode.distribution.zmq.ZmqFrameDistributorFactory,
                  eu.dariolucia.jsatdecode.distribution.zmq.FrameFileDistributorFactory;
     provides eu.dariolucia.jsatdecode.api.distribution.MonitoringDistributorFactory
             with eu.dariolucia.jsatdecode.core.distribution.SyntheticMonitoringDistributorFactory,
+                 eu.dariolucia.jsatdecode.distribution.tcp.TcpMonitoringDistributorFactory,
                  eu.dariolucia.jsatdecode.distribution.zmq.ZmqMonitoringDistributorFactory;
 }
