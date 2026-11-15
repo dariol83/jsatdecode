@@ -2,6 +2,7 @@ package eu.dariolucia.jsatdecode.distribution.tcp;
 
 import eu.dariolucia.jsatdecode.api.config.Configuration;
 import eu.dariolucia.jsatdecode.api.config.ConfigurationException;
+import eu.dariolucia.jsatdecode.api.distribution.OverflowPolicy;
 
 import java.util.Objects;
 
@@ -25,6 +26,8 @@ import java.util.Objects;
  *   <li>{@code distribution.tcp.max_frame_buffer} (5) - Frame count flush trigger</li>
  *   <li>{@code distribution.tcp.max_message_bytes} (1048576) - Maximum message size</li>
  *   <li>{@code distribution.tcp.client_queue_bytes} (1048576) - Per-client queue limit</li>
+ *   <li>{@code distribution.tcp.source_id} (1) - Antenna/decoder identifier</li>
+ *   <li>{@code distribution.frames.overflow_policy} (FAIL_RUNTIME) - Frame overflow policy</li>
  * </ul>
  *
  * @param port                     TCP listen port (1-65535)
@@ -39,6 +42,7 @@ import java.util.Objects;
  * @param maxMessageBytes          Maximum message size in bytes (40-2^32-1)
  * @param clientQueueBytes         Per-client pending bytes limit (1-2^31-1)
  * @param sourceId                 Antenna/decoder identifier (0-65535)
+ * @param overflowPolicy           Overflow policy for when clients cannot keep up
  */
 public record TcpSettings(
         int port,
@@ -52,7 +56,8 @@ public record TcpSettings(
         int maxFrameBuffer,
         int maxMessageBytes,
         int clientQueueBytes,
-        int sourceId
+        int sourceId,
+        OverflowPolicy overflowPolicy
 ) {
 
     /**
@@ -94,6 +99,11 @@ public record TcpSettings(
      * Default source identifier.
      */
     public static final int DEFAULT_SOURCE_ID = 1;
+
+    /**
+     * Default overflow policy.
+     */
+    public static final OverflowPolicy DEFAULT_OVERFLOW_POLICY = OverflowPolicy.FAIL_RUNTIME;
 
     /**
      * Creates and validates TCP distribution settings from configuration.
@@ -149,6 +159,11 @@ public record TcpSettings(
             throw new ConfigurationException("distribution.tcp.source_id must be between 0 and 65535");
         }
 
+        // Overflow policy
+        OverflowPolicy overflowPolicy = configuration.asMap().containsKey("distribution.frames.overflow_policy")
+                ? OverflowPolicy.valueOf(configuration.getString("distribution.frames.overflow_policy").toUpperCase())
+                : DEFAULT_OVERFLOW_POLICY;
+
         return new TcpSettings(
                 port,
                 keepalive,
@@ -161,7 +176,8 @@ public record TcpSettings(
                 maxFrameBuffer,
                 maxMessageBytes,
                 clientQueueBytes,
-                sourceId
+                sourceId,
+                overflowPolicy
         );
     }
 
@@ -211,6 +227,9 @@ public record TcpSettings(
             throw new ConfigurationException("distribution.tcp.max_reconnect_interval_ms must be >= reconnect_interval_ms");
         }
 
+        // Overflow policy (using default for client)
+        OverflowPolicy overflowPolicy = DEFAULT_OVERFLOW_POLICY;
+
         return new TcpSettings(
                 port,
                 false, // keepalive not typically used by client
@@ -223,7 +242,8 @@ public record TcpSettings(
                 0, // maxFrameBuffer not used by client
                 DEFAULT_MAX_MESSAGE_BYTES,
                 DEFAULT_CLIENT_QUEUE_BYTES,
-                0 // sourceId not used by client
+                0, // sourceId not used by client
+                overflowPolicy
         );
     }
 

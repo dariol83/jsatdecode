@@ -4,6 +4,7 @@ import eu.dariolucia.jsatdecode.api.distribution.FrameDistributor;
 import eu.dariolucia.jsatdecode.api.distribution.FrameDistributorFactory;
 import eu.dariolucia.jsatdecode.api.distribution.MonitoringDistributor;
 import eu.dariolucia.jsatdecode.api.distribution.MonitoringDistributorFactory;
+import eu.dariolucia.jsatdecode.api.distribution.OverflowPolicy;
 import org.junit.jupiter.api.Test;
 
 import java.util.ServiceLoader;
@@ -134,7 +135,8 @@ public final class TcpFactoryTest {
     @Test
     public void testFrameDistributorDescriptor() {
         TcpFrameDistributor distributor = new TcpFrameDistributor(
-                new TcpSettings(17003, false, 1, 0, 0, true, 0, 0, 5, 1048576, 1048576, 1)
+                new TcpSettings(17003, false, 1, 0, 0, true, 0, 0, 5, 1048576, 1048576, 1, 
+                        OverflowPolicy.FAIL_RUNTIME)
         );
         
         var descriptor = distributor.descriptor();
@@ -149,7 +151,8 @@ public final class TcpFactoryTest {
     @Test
     public void testMonitoringDistributorDescriptor() {
         TcpMonitoringDistributor distributor = new TcpMonitoringDistributor(
-                new TcpSettings(17004, false, 1, 0, 0, true, 3000, 0, 5, 1048576, 1048576, 1)
+                new TcpSettings(17004, false, 1, 0, 0, true, 3000, 0, 5, 1048576, 1048576, 1,
+                        OverflowPolicy.FAIL_RUNTIME)
         );
         
         var descriptor = distributor.descriptor();

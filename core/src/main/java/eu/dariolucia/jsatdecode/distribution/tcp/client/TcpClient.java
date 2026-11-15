@@ -112,7 +112,8 @@ public final class TcpClient {
     public TcpClient(String host, int port) {
         this(host, port, new TcpSettings(
                 port, false, 1, 0, 0, true,
-                0, 0, 0, 1_048_576, 1_048_576, 0
+                0, 0, 0, 1_048_576, 1_048_576, 0, 
+                eu.dariolucia.jsatdecode.api.distribution.OverflowPolicy.FAIL_RUNTIME
         ), 1000L, 30000L);
     }
 
@@ -167,7 +168,8 @@ public final class TcpClient {
                 0,     // maxFrameBuffer (not used by client)
                 1_048_576, // maxMessageBytes
                 1_048_576, // clientQueueBytes (not used by client)
-                0      // sourceId (not used by client)
+                0,     // sourceId (not used by client)
+                eu.dariolucia.jsatdecode.api.distribution.OverflowPolicy.FAIL_RUNTIME
         );
     }
 

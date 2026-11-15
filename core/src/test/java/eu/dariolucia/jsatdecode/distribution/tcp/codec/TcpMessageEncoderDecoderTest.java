@@ -179,6 +179,70 @@ public final class TcpMessageEncoderDecoderTest {
     }
 
     @Test
+    public void testEncodeDecodeDataDiscardedEvent() {
+        TcpMessageEncoder encoder = new TcpMessageEncoder(1, 1048576);
+        
+        // Test encoding data_discarded event type
+        byte[] encoded = encoder.encodeEvent(
+                new eu.dariolucia.jsatdecode.api.distribution.RuntimeEvent(
+                        System.nanoTime(),
+                        eu.dariolucia.jsatdecode.api.distribution.EventSeverity.WARNING,
+                        "test",
+                        "data.discarded",
+                        "Data discarded due to overflow",
+                        java.util.Map.of()
+                ),
+                (byte) 0,
+                0L
+        );
+        
+        assertNotNull(encoded);
+        assertTrue(encoded.length > 0);
+        
+        // Decode and verify it's a valid event message
+        TcpMessage message = TcpMessageDecoder.decodeSingle(encoded);
+        assertNotNull(message);
+        assertTrue(message.isEvent());
+        assertNotNull(message.event());
+        assertEquals(TcpConstants.EVENT_DATA_DISCARDED, message.event().eventCode());
+    }
+
+    @Test
+    public void testEncodeEventDataDiscardedType() {
+        TcpMessageEncoder encoder = new TcpMessageEncoder(1, 1048576);
+        
+        // Test with data_discarded type (lowercase with underscore)
+        byte[] encoded1 = encoder.encodeEvent(
+                new eu.dariolucia.jsatdecode.api.distribution.RuntimeEvent(
+                        System.nanoTime(),
+                        eu.dariolucia.jsatdecode.api.distribution.EventSeverity.WARNING,
+                        "test",
+                        "data_discarded",
+                        "Data discarded",
+                        java.util.Map.of()
+                ),
+                (byte) 0,
+                0L
+        );
+        assertNotNull(encoded1);
+        
+        // Test with data.discarded type (lowercase with dot)
+        byte[] encoded2 = encoder.encodeEvent(
+                new eu.dariolucia.jsatdecode.api.distribution.RuntimeEvent(
+                        System.nanoTime(),
+                        eu.dariolucia.jsatdecode.api.distribution.EventSeverity.WARNING,
+                        "test",
+                        "data.discarded",
+                        "Data discarded",
+                        java.util.Map.of()
+                ),
+                (byte) 0,
+                0L
+        );
+        assertNotNull(encoded2);
+    }
+
+    @Test
     public void testEncodeFrameBatchFromAnnotated() {
         TcpMessageEncoder encoder = new TcpMessageEncoder(1, 1048576);
         

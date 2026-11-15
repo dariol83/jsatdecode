@@ -76,6 +76,7 @@ public final class TcpConstantsTest {
         assertEquals(4, TcpConstants.EVENT_FRAME_STATE_CHANGED);
         assertEquals(5, TcpConstants.EVENT_DECODER_ERROR);
         assertEquals(6, TcpConstants.EVENT_DISTRIBUTION_OVERRUN);
+        assertEquals(7, TcpConstants.EVENT_DATA_DISCARDED);
     }
 
     @Test
@@ -127,7 +128,8 @@ public final class TcpConstantsTest {
         assertTrue(TcpConstants.isValidEventCode(TcpConstants.EVENT_FRAME_STATE_CHANGED));
         assertTrue(TcpConstants.isValidEventCode(TcpConstants.EVENT_DECODER_ERROR));
         assertTrue(TcpConstants.isValidEventCode(TcpConstants.EVENT_DISTRIBUTION_OVERRUN));
-        assertFalse(TcpConstants.isValidEventCode((byte) 7));
+        assertTrue(TcpConstants.isValidEventCode(TcpConstants.EVENT_DATA_DISCARDED));
+        assertFalse(TcpConstants.isValidEventCode((byte) 8));
         assertFalse(TcpConstants.isValidEventCode((byte) 255));
     }
 
@@ -135,7 +137,8 @@ public final class TcpConstantsTest {
     public void testIsReservedEventCode() {
         assertFalse(TcpConstants.isReservedEventCode((byte) 0));
         assertFalse(TcpConstants.isReservedEventCode((byte) 6));
-        assertTrue(TcpConstants.isReservedEventCode((byte) 7));
+        assertFalse(TcpConstants.isReservedEventCode((byte) 7));
+        assertTrue(TcpConstants.isReservedEventCode((byte) 8));
         assertTrue(TcpConstants.isReservedEventCode((byte) 100));
         assertTrue(TcpConstants.isReservedEventCode((byte) 255));
     }

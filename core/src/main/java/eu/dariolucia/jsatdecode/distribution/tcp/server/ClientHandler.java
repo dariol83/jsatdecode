@@ -1,5 +1,8 @@
 package eu.dariolucia.jsatdecode.distribution.tcp.server;
 
+import eu.dariolucia.jsatdecode.api.distribution.OverflowPolicy;
+import eu.dariolucia.jsatdecode.distribution.tcp.codec.TcpConstants;
+import eu.dariolucia.jsatdecode.distribution.tcp.codec.TcpMessageEncoder;
 import eu.dariolucia.jsatdecode.distribution.tcp.codec.TcpMessageDecoder;
 
 import java.io.IOException;
@@ -33,10 +36,16 @@ public final class ClientHandler {
     private final Socket socket;
     private final OutputStream outputStream;
     private final int maxQueueBytes;
+    private final OverflowPolicy overflowPolicy;
+    private final int sourceId;
+    private final int maxMessageBytes;
 
     private final ConcurrentLinkedQueue<byte[]> messageQueue = new ConcurrentLinkedQueue<>();
     private final AtomicLong queueBytes = new AtomicLong(0);
     private final AtomicBoolean closed = new AtomicBoolean(false);
+    
+    // Flag to prevent recursion when emitting data discarded events
+    private final ThreadLocal<Boolean> emittingDataDiscarded = ThreadLocal.withInitial(() -> false);
 
     // Statistics
     private final AtomicLong messagesSent = new AtomicLong(0);
@@ -56,16 +65,22 @@ public final class ClientHandler {
      * @param socket         The client socket
      * @param maxQueueBytes  The maximum queue size in bytes
      * @param maxMessageBytes The maximum message size
+     * @param overflowPolicy The overflow policy for handling slow clients
+     * @param sourceId       The source identifier for event encoding
      * @throws IOException if the output stream cannot be obtained
      */
     public ClientHandler(
             TcpServer server, long clientId, Socket socket,
-            int maxQueueBytes, int maxMessageBytes) throws IOException {
+            int maxQueueBytes, int maxMessageBytes,
+            OverflowPolicy overflowPolicy, int sourceId) throws IOException {
         this.server = server;
         this.clientId = clientId;
         this.socket = socket;
         this.outputStream = socket.getOutputStream();
         this.maxQueueBytes = maxQueueBytes;
+        this.overflowPolicy = overflowPolicy != null ? overflowPolicy : OverflowPolicy.FAIL_RUNTIME;
+        this.sourceId = sourceId;
+        this.maxMessageBytes = maxMessageBytes;
         this.connectTimeNanos = System.nanoTime();
         this.lastActivityNanos = connectTimeNanos;
         this.decoder = new TcpMessageDecoder(maxMessageBytes);
@@ -113,8 +128,13 @@ public final class ClientHandler {
     /**
      * Enqueues a message for transmission.
      *
-     * <p>If the queue byte limit would be exceeded, the message is dropped and
-     * the client is disconnected according to the slow client policy.
+     * <p>If the queue byte limit would be exceeded, the behavior depends on
+     * the overflow policy:
+     * <ul>
+     *   <li>FAIL_RUNTIME: disconnect the client</li>
+     *   <li>DROP_NEWEST: drop the new message and emit EVENT_DATA_DISCARDED</li>
+     *   <li>DROP_OLDEST: drop the oldest message and emit EVENT_DATA_DISCARDED</li>
+     * </ul>
      *
      * @param message The message bytes to send
      */
@@ -124,17 +144,40 @@ public final class ClientHandler {
         }
 
         // Check if adding this message would exceed the queue limit
-        long newQueueBytes = queueBytes.addAndGet(message.length);
+        long currentQueueBytes = queueBytes.get();
+        long newQueueBytes = currentQueueBytes + message.length;
 
         if (newQueueBytes > maxQueueBytes) {
-            // Exceeded queue limit - rollback and disconnect
-            queueBytes.addAndGet(-message.length);
-            close();
-            return;
+            // Exceeded queue limit - handle based on overflow policy
+            if (overflowPolicy == OverflowPolicy.FAIL_RUNTIME) {
+                // Disconnect the client
+                close();
+                return;
+            }
+
+            // For DROP_NEWEST or DROP_OLDEST, emit EVENT_DATA_DISCARDED
+            emitDataDiscardedEvent();
+
+            if (overflowPolicy == OverflowPolicy.DROP_NEWEST) {
+                // Drop the new message - do not add to queue
+                return;
+            } else if (overflowPolicy == OverflowPolicy.DROP_OLDEST) {
+                // Drop the oldest message to make room
+                byte[] oldest = messageQueue.poll();
+                if (oldest != null) {
+                    queueBytes.addAndGet(-oldest.length);
+                    // Now add the new message
+                    messageQueue.offer(message);
+                    queueBytes.addAndGet(message.length);
+                    lastActivityNanos = System.nanoTime();
+                }
+                return;
+            }
         }
 
         // Add to queue
         messageQueue.offer(message);
+        queueBytes.addAndGet(message.length);
         lastActivityNanos = System.nanoTime();
     }
 
@@ -337,6 +380,52 @@ public final class ClientHandler {
      */
     public long getErrors() {
         return errors.get();
+    }
+
+    /**
+     * Emits a DATA_DISCARDED event to all clients.
+     * This is called when a client cannot keep up with the distribution rate
+     * and the overflow policy is DROP_NEWEST or DROP_OLDEST.
+     */
+    private void emitDataDiscardedEvent() {
+        // Prevent recursion - if we're already emitting a data discarded event, don't emit another
+        if (emittingDataDiscarded.get()) {
+            return;
+        }
+        
+        emittingDataDiscarded.set(true);
+        try {
+            // Create a temporary encoder for this event
+            TcpMessageEncoder encoder = new TcpMessageEncoder(sourceId, maxMessageBytes);
+            
+            // Create event message with current timestamp
+            long timestampNanos = System.nanoTime();
+            
+            // Create a simple event message - we use 0 for status and frequency
+            // as we don't have access to current monitoring state here
+            byte statusByte = 0;
+            long centerFrequencyHz = 0;
+            
+            // Encode the event
+            eu.dariolucia.jsatdecode.distribution.tcp.codec.EventMessage eventMsg = 
+                    new eu.dariolucia.jsatdecode.distribution.tcp.codec.EventMessage(
+                            TcpConstants.EVENT_DATA_DISCARDED, 
+                            timestampNanos, 
+                            statusByte, 
+                            centerFrequencyHz
+                    );
+            byte[] eventBytes = encoder.encodeEvent(eventMsg);
+            
+            if (eventBytes != null) {
+                // Broadcast to all clients including this one
+                server.broadcast(eventBytes);
+            }
+        } catch (Exception e) {
+            // Log and ignore - we don't want to fail the enqueue due to event emission
+            server.recordError();
+        } finally {
+            emittingDataDiscarded.remove();
+        }
     }
 
     /**

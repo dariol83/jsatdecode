@@ -94,9 +94,10 @@ The producer MUST emit only `0` or `1` for SNR availability. A receiver MUST tre
 | 4 | Frame state changed |
 | 5 | Decoder error |
 | 6 | Distribution overrun |
-| 7–255 | Reserved |
+| 7 | Data discarded |
+| 8–255 | Reserved |
 
-State-change events contain the **new** state in the corresponding status bits. Events with other codes carry a current status snapshot. In v1, decoder error and distribution overrun are intentionally **code-only** notifications: there is no embedded text, severity, or supplemental payload. Unsupported framework event categories MUST NOT be mapped to misleading event codes; they MAY remain local to JSatDecode. Producers MUST NOT emit reserved event codes; receivers SHOULD ignore unknown codes after validating the message length.
+State-change events contain the **new** state in the corresponding status bits. Events with other codes carry a current status snapshot. In v1, decoder error, distribution overrun, and data discarded are intentionally **code-only** notifications: there is no embedded text, severity, or supplemental payload. Unsupported framework event categories MUST NOT be mapped to misleading event codes; they MAY remain local to JSatDecode. Producers MUST NOT emit reserved event codes; receivers SHOULD ignore unknown codes after validating the message length.
 
 Events SHOULD be emitted promptly after occurrence, without waiting for frame batching. The stopped event is best-effort during normal shutdown; abrupt process or socket failure cannot guarantee its delivery.
 

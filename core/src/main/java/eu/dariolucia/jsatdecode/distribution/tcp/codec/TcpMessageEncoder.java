@@ -309,6 +309,9 @@ public final class TcpMessageEncoder {
             case "distribution.overrun":
             case "distribution_overrun":
                 return TcpConstants.EVENT_DISTRIBUTION_OVERRUN;
+            case "data.discarded":
+            case "data_discarded":
+                return TcpConstants.EVENT_DATA_DISCARDED;
             default:
                 return -1; // Unmappable
         }

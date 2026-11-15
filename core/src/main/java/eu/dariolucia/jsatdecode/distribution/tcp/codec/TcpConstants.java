@@ -221,6 +221,13 @@ public final class TcpConstants {
      */
     public static final byte EVENT_DISTRIBUTION_OVERRUN = 6;
 
+    /**
+     * Event code: data discarded.
+     * Emitted when a client cannot keep up with the distribution rate
+     * and the overflow policy is set to DROP_NEWEST or DROP_OLDEST.
+     */
+    public static final byte EVENT_DATA_DISCARDED = 7;
+
     // Reserved type range: 0x03-0xEF
     /**
      * First reserved message type.
@@ -247,7 +254,7 @@ public final class TcpConstants {
     /**
      * First reserved event code.
      */
-    public static final byte EVENT_RESERVED_MIN = 7;
+    public static final byte EVENT_RESERVED_MIN = 8;
 
     /**
      * Last reserved event code.
@@ -295,20 +302,20 @@ public final class TcpConstants {
      * Checks if an event code is valid for v1.
      *
      * @param code the event code to check
-     * @return true if the code is valid (0-6)
+     * @return true if the code is valid (0-7)
      */
     public static boolean isValidEventCode(byte code) {
-        return (code & 0xFF) <= 6;
+        return (code & 0xFF) <= 7;
     }
 
     /**
      * Checks if an event code is in the reserved range.
      *
      * @param code the event code to check
-     * @return true if the code is reserved (7-255)
+     * @return true if the code is reserved (8-255)
      */
     public static boolean isReservedEventCode(byte code) {
-        return (code & 0xFF) >= 7;
+        return (code & 0xFF) >= 8;
     }
 
     /**

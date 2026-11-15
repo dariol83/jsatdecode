@@ -1,6 +1,7 @@
 package eu.dariolucia.jsatdecode.distribution.tcp.server;
 
 import eu.dariolucia.jsatdecode.api.distribution.DistributionSnapshot;
+import eu.dariolucia.jsatdecode.api.distribution.OverflowPolicy;
 import eu.dariolucia.jsatdecode.api.lifecycle.ComponentState;
 import eu.dariolucia.jsatdecode.api.lifecycle.LifecycleComponent;
 import eu.dariolucia.jsatdecode.distribution.tcp.TcpSettings;
@@ -227,7 +228,8 @@ public class TcpServer implements LifecycleComponent {
                     // Create client handler
                     long clientId = nextClientId.getAndIncrement();
                     ClientHandler handler = new ClientHandler(
-                            this, clientId, socket, settings.clientQueueBytes(), settings.maxMessageBytes()
+                            this, clientId, socket, settings.clientQueueBytes(), settings.maxMessageBytes(),
+                            settings.overflowPolicy(), settings.sourceId()
                     );
 
                     // Add to clients map
