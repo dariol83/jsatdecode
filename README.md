@@ -74,6 +74,7 @@ bin/jsatinspector.bat --help
 - [Java modules](core/docs/java-modules.md) - JPMS dependencies, services and module-path usage
 - [Decoder Implementation Guide](core/docs/decoder-implementation-specification.md) - Specification for decoder implementation
 - [ZMQ distribution interface](core/docs/zmq-distribution-interface.md) - Specification of ZMQ-based distribution protocol
+- [TCP distribution interface](core/docs/tcp-distribution-interface.md) - Specification of TCP-based distribution protocol
 
 ## Mission Decoders
 
