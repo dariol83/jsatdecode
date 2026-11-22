@@ -37,6 +37,6 @@ STEM_NAME="${BASE_NAME%.cs16}"
 OUTPUT_FILE="${DIR_NAME}/${STEM_NAME}_S${START_SEC}_L${LENGTH_SEC}.cs16"
 
 # Extract exact IQ samples (4 bytes per sample) without modifying values
-dd if="$INPUT_FILE" of="$OUTPUT_FILE" bs=4 skip="$SKIP_SAMPLES" count="$COUNT_SAMPLES" status=progress
+dd if="$INPUT_FILE" of="$OUTPUT_FILE" bs=4 skip="$SKIP_SAMPLES" count="$COUNT_SAMPLES"
 
 echo "Saved: $OUTPUT_FILE"
