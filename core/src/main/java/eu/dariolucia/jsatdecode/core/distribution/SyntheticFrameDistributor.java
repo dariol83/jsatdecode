@@ -1,6 +1,7 @@
 package eu.dariolucia.jsatdecode.core.distribution;
 
 import eu.dariolucia.jsatdecode.api.distribution.DistributionSnapshot;
+import eu.dariolucia.jsatdecode.api.distribution.AsyncOutput;
 import eu.dariolucia.jsatdecode.api.distribution.FrameDistributor;
 import eu.dariolucia.jsatdecode.api.distribution.FrameDistributorDescriptor;
 import eu.dariolucia.jsatdecode.api.distribution.OverflowPolicy;

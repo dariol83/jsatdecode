@@ -18,6 +18,11 @@ for a bounded, count-only read diagnostic. These capabilities let Inspector use
 the FMComms2 provider through the source service while retaining its current
 radio configuration and diagnostic behavior.
 
+Distribution providers can register a `DistributionConfigurationNormalizer` to
+validate shared aliases before components are created. A monitoring output can
+implement `InitialMonitoringSnapshot` to request the runtime's initial snapshot.
+The reusable `AsyncOutput` mailbox provides bounded, worker-owned delivery.
+
 Build and run the standalone API checks with JDK 25 and Maven:
 
 ```text

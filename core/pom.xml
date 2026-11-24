@@ -6,7 +6,7 @@
     <artifactId>jsatdecode-core</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <name>JSatDecode Core</name>
-    <description>Satellite telemetry framework with isolated SatDecode ZMQ distribution</description>
+    <description>Satellite telemetry runtime, service discovery and desktop tools</description>
     <url>https://www.github.com/dariol83/jsatdecode</url>
 
     <developers>
@@ -47,9 +47,11 @@
         <dependency>
             <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-source-fmcomms2</artifactId><version>${project.version}</version><scope>test</scope>
         </dependency>
-        <!-- Implementation-only binding: no org.zeromq types in the stable API. -->
         <dependency>
-            <groupId>org.zeromq</groupId><artifactId>jeromq</artifactId><version>0.6.0</version>
+            <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-distribution-zmq</artifactId><version>${project.version}</version><scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-distribution-jtdp</artifactId><version>${project.version}</version><scope>test</scope>
         </dependency>
         <!-- Independent CBOR fixtures validate the wire protocol in tests. -->
         <dependency>
@@ -167,13 +169,6 @@
                         <id>verbose-monitoring-tests</id><phase>test</phase><goals><goal>java</goal></goals>
                         <configuration>
                             <mainClass>eu.dariolucia.jsatdecode.core.runtime.VerboseMonitoringLogTest</mainClass>
-                            <classpathScope>test</classpathScope><skip>${skipTests}</skip>
-                        </configuration>
-                    </execution>
-                    <execution>
-                        <id>zmq-reference-client-tests</id><phase>test</phase><goals><goal>java</goal></goals>
-                        <configuration>
-                            <mainClass>eu.dariolucia.jsatdecode.distribution.zmq.client.ZmqClientTest</mainClass>
                             <classpathScope>test</classpathScope><skip>${skipTests}</skip>
                         </configuration>
                     </execution>

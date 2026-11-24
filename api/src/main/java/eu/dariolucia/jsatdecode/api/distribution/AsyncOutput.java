@@ -1,8 +1,5 @@
-package eu.dariolucia.jsatdecode.core.distribution;
+package eu.dariolucia.jsatdecode.api.distribution;
 
-import eu.dariolucia.jsatdecode.api.distribution.DistributionSnapshot;
-import eu.dariolucia.jsatdecode.api.distribution.OutputException;
-import eu.dariolucia.jsatdecode.api.distribution.OverflowPolicy;
 import eu.dariolucia.jsatdecode.api.lifecycle.ComponentState;
 import eu.dariolucia.jsatdecode.api.lifecycle.LifecycleComponent;
 
@@ -14,10 +11,14 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
 
-/* Shared bounded mailbox. Lifecycle is serialized by the owner; producers must
-   be quiescent before stop. A permit covers queued items and pending publication.
-   Transport is called only on the owned worker, never under a producer lock. */
-final class AsyncOutput<T> implements LifecycleComponent {
+/**
+ * Shared bounded mailbox. Lifecycle is serialized by the owner; producers must
+ * be quiescent before stop. A permit covers queued items and pending publication.
+ * The callback runs only on the owned worker, never under a producer lock.
+ *
+ * @param <T> item type
+ */
+public final class AsyncOutput<T> implements LifecycleComponent {
     private final ConcurrentLinkedQueue<T> queue = new ConcurrentLinkedQueue<>();
     private final Semaphore slots;
     private final int capacity;
@@ -29,7 +30,14 @@ final class AsyncOutput<T> implements LifecycleComponent {
     private Thread worker;
     private final AtomicInteger submitting = new AtomicInteger();
 
-    AsyncOutput(int capacity, OverflowPolicy policy, Consumer<T> output) {
+    /**
+     * Creates an unstarted mailbox.
+     *
+     * @param capacity positive queue bound
+     * @param policy overflow behavior
+     * @param output worker callback
+     */
+    public AsyncOutput(int capacity, OverflowPolicy policy, Consumer<T> output) {
         if (capacity <= 0) throw new IllegalArgumentException("Queue capacity must be positive");
         this.capacity = capacity;
         slots = new Semaphore(capacity);
@@ -37,7 +45,12 @@ final class AsyncOutput<T> implements LifecycleComponent {
         this.output = Objects.requireNonNull(output);
     }
 
-    void offer(T item) {
+    /**
+     * Submits an item without waiting for the worker.
+     *
+     * @param item item to submit
+     */
+    public void offer(T item) {
         submitting.incrementAndGet();
         try {
             offerInternal(item);
@@ -154,7 +167,12 @@ final class AsyncOutput<T> implements LifecycleComponent {
         return state;
     }
 
-    DistributionSnapshot snapshot() {
+    /**
+     * Returns current queue and delivery counters.
+     *
+     * @return current queue and delivery counters
+     */
+    public DistributionSnapshot snapshot() {
         return new DistributionSnapshot(isRunning(), isRunning(), received.get(), sent.get(), dropped.get(), errors.get(),
                 Math.min(capacity, capacity - slots.availablePermits()), capacity, eu.dariolucia.jsatdecode.util.UtcTime.nowNanos());
     }

@@ -29,6 +29,12 @@
     </properties>
     <dependencies>
         <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-distribution-zmq</artifactId><version>${project.version}</version><scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-distribution-jtdp</artifactId><version>${project.version}</version><scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>eu.dariolucia.jsatdecode</groupId>
             <artifactId>jsatdecode-api</artifactId>
             <version>${project.version}</version>

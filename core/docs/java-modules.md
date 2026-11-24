@@ -11,12 +11,14 @@ directory and artifact names differ from JPMS names:
 | `api` | `jsatdecode-api` | `eu.dariolucia.jsatdecode.api` |
 | `source_file` | `jsatdecode-source-file` | `eu.dariolucia.jsatdecode.source.file` |
 | `source_fmcomms2` | `jsatdecode-source-fmcomms2` | `eu.dariolucia.jsatdecode.source.fmcomms2` |
+| `distribution_zmq` | `jsatdecode-distribution-zmq` | `eu.dariolucia.jsatdecode.distribution.zmq` |
+| `distribution_jtdp` | `jsatdecode-distribution-jtdp` | `eu.dariolucia.jsatdecode.distribution.jtdp` |
 | `core` | `jsatdecode-core` | `eu.dariolucia.jsatdecode.core` |
 | `decoder_base` | `decoder-base` | `eu.dariolucia.jsatdecode.decoder.base` |
 | `decoder_elektrol_ggak` | `decoder-elektrol-ggak` | `eu.dariolucia.jsatdecode.decoder.elektrol.ggak` |
 | `decoder_hinode` | `decoder-hinode` | `eu.dariolucia.jsatdecode.decoder.hinode` |
 
-The group ID for all seven artifacts is `eu.dariolucia.jsatdecode`.
+The group ID for all nine artifacts is `eu.dariolucia.jsatdecode`.
 
 ## Dependencies and exported packages
 
@@ -25,13 +27,15 @@ The group ID for all seven artifacts is `eu.dariolucia.jsatdecode`.
 | API | None |
 | File sources | `requires transitive eu.dariolucia.jsatdecode.api` |
 | FMComms2 source | `requires transitive eu.dariolucia.jsatdecode.api`, `requires java.xml` |
-| Core | `requires transitive eu.dariolucia.jsatdecode.api`, `requires transitive java.desktop`, `requires org.zeromq.jeromq` |
+| ZMQ distribution | `requires transitive eu.dariolucia.jsatdecode.api`, `requires org.zeromq.jeromq` |
+| JTDP distribution | `requires transitive eu.dariolucia.jsatdecode.api` |
+| Core | `requires transitive eu.dariolucia.jsatdecode.api`, `requires transitive java.desktop` |
 | Shared decoder library | `requires transitive eu.dariolucia.jsatdecode.api`, `requires jradio` |
 | Each mission decoder | `requires transitive eu.dariolucia.jsatdecode.api`, `requires transitive eu.dariolucia.jsatdecode.decoder.base`, `requires jradio` |
 
-Each source module depends on API alone among JSatDecode modules. Core has no
-production dependency on either source module, the shared decoder library or
-either mission module.
+Each source and distribution module depends on API alone among JSatDecode modules.
+Core has no production dependency on those providers, the shared decoder library
+or either mission module.
 `requires transitive` makes API contracts readable to consumers of core, the
 shared library and mission decoders. A consumer that uses jradio types itself must
 declare its own `requires jradio`; jradio is not part of the exported decoder
@@ -39,8 +43,8 @@ API. Core's exported Swing panel API extends Java desktop types, so
 `java.desktop` is transitive. The packaged application also includes FMComms2,
 which requires `java.xml`, including in headless modular launches.
 
-Core tests use the source modules with test scope. Mission decoder tests and
-qualification tools use core and the source modules with test scope. Their
+Core tests use the source and distribution modules with test scope. Mission decoder tests and
+qualification tools use core and the providers with test scope. Their
 builds copy test dependencies to `target/lib` so existing local launcher and
 recording commands continue to work; none are published runtime dependencies
 of a mission decoder.
@@ -52,7 +56,9 @@ All package names below have the prefix `eu.dariolucia.jsatdecode`:
 | API | `api.config`, `api.decoder`, `api.distribution`, `api.frame`, `api.lifecycle`, `api.monitoring`, `api.source`, `api.taps`; `core.buffers`, `core.monitoring`; `dsp.fft`; `util` |
 | File sources | `source.file`, `source.cf32`, `source.cs16`, `source.wav` |
 | FMComms2 source | `source.fmcomms2` |
-| Core | `core.config`, `core.registry`, `core.runtime`; `distribution.tcp`, `distribution.tcp.client`, `distribution.tcp.codec`, `distribution.tcp.server`, `distribution.zmq`, `distribution.zmq.client`; `ui.swing` |
+| ZMQ distribution | `distribution.zmq`, `distribution.zmq.client` |
+| JTDP distribution | `distribution.tcp`, `distribution.tcp.client`, `distribution.tcp.codec`, `distribution.tcp.server` |
+| Core | `core.config`, `core.registry`, `core.runtime`; `ui.swing` |
 | Shared decoder library | `decoder.base`, `decoder.base.config`, `decoder.base.dsp`, `decoder.base.monitoring` |
 | Elektro-L GGAK | `elektrol` |
 | Hinode | `hinode` |
@@ -65,9 +71,9 @@ The API retains the historical `core.buffers` and `core.monitoring` package
 names for shared helpers; those packages are owned solely by API, avoiding split
 packages and preserving existing imports.
 
-Code that imports a concrete source class on the module path must require its
-owning source module. Existing Java package names are unchanged; classpath users
-include the corresponding source JAR alongside API and the application.
+Code that imports a concrete source or distribution class on the module path must
+require its owning provider module. Existing Java package names are unchanged;
+classpath users include the corresponding provider JAR alongside API and the application.
 
 The main core JAR supplies the `MainLauncher` entry point. There is no separate
 `modular` classifier. Applications that previously selected that classifier
@@ -86,12 +92,13 @@ jar --describe-module --file core/target/jsatdecoder.jar
 ```
 
 The full build compiles explicit descriptors and runs the Java test harnesses.
-The distribution checks also inspect all seven packaged descriptors, resolve the
+The distribution checks also inspect all nine packaged descriptors, resolve the
 module graph with core as the root and service binding enabled, and launch the
 packaged applications to check factory discovery and argument handling.
 Independent consumers compile and run with API alone, with each source provider,
 and with the shared library plus its required dependencies, without core. Source
-providers are also exercised independently on the classpath. An external named
+and distribution providers are also exercised independently on the module path
+and classpath. An external named
 consumer also uses core's registry to run both mission decoders through service
 discovery, checking DSP and lifecycle without access overrides.
 The harnesses use the classpath for existing functional tests; the packaged
@@ -99,12 +106,12 @@ application checks exercise the module path. Desktop interaction and external
 recording checks remain opt-in as described in the component documentation.
 
 Publication remains controlled by the `release` profile for `api`, both source
-modules, `core` and `decoder_base`. Their ordinary published JARs include the
+and distribution modules, `core` and `decoder_base`. Their ordinary published JARs include the
 module descriptors.
 
 ## Run on the module path
 
-The [standalone distribution](../../distribution/README.md) collects the seven
+The [standalone distribution](../../distribution/README.md) collects the nine
 application modules and their runtime dependencies in `lib/`. After extraction,
 its launchers run these commands, with the appropriate Java executable:
 
@@ -115,7 +122,7 @@ java --module-path lib --module eu.dariolucia.jsatdecode.core/eu.dariolucia.jsat
 
 Core declares the factory services it consumes. Standard launcher service
 binding resolves matching provider modules from the module path, including the
-sources and mission decoders; no `--add-modules ALL-MODULE-PATH` is needed. To install another
+sources, distributions and mission decoders; no `--add-modules ALL-MODULE-PATH` is needed. To install another
 decoder, put its modular JAR and runtime dependencies in `lib/` and register its
 factory as described below. Do not place multiple versions of the same module
 on that path.
@@ -138,15 +145,21 @@ from filenames. The current runtime graph cannot be packaged directly with
 
 ## Service providers
 
-Core declares `uses` for all four factory contracts:
+Core declares `uses` for all four factory contracts and the optional distribution
+configuration normalizer service:
 
 | Service in `eu.dariolucia.jsatdecode.api` | Provider module | IDs |
 | --- | --- | --- |
 | `source.SampleSourceFactory` | File sources | `wav`, `cf32`, `cs16` |
 | `source.SampleSourceFactory` | FMComms2 source | `fmcomms2` |
 | `decoder.DecoderFactory` | Core | `dummy` |
-| `distribution.FrameDistributorFactory` | Core | `synthetic`, `zmq`, `frame-file` |
-| `distribution.MonitoringDistributorFactory` | Core | `synthetic`, `zmq` |
+| `distribution.FrameDistributorFactory` | Core | `synthetic` |
+| `distribution.MonitoringDistributorFactory` | Core | `synthetic` |
+| `distribution.FrameDistributorFactory` | ZMQ distribution | `zmq`, `frame-file` |
+| `distribution.MonitoringDistributorFactory` | ZMQ distribution | `zmq` |
+| `distribution.FrameDistributorFactory` | JTDP distribution | `tcp` |
+| `distribution.MonitoringDistributorFactory` | JTDP distribution | `tcp` |
+| `distribution.DistributionConfigurationNormalizer` | JTDP distribution | Shared TCP aliases and validation |
 
 Each module declares `provides` for its own providers. The Elektro-L GGAK
 and Hinode modules each declare `provides DecoderFactory` with their public
@@ -178,7 +191,7 @@ contract, load providers in its consuming module and pass them to the
 ## Classpath compatibility
 
 The same JARs continue to work on the classpath, where module descriptors do not
-enforce package exports. Core, source and mission modules retain `META-INF/services`
+enforce package exports. Core, source, distribution and mission modules retain `META-INF/services`
 resources for factory discovery. Custom providers should supply both a JPMS
 `provides` declaration and the matching service resource when supporting both
 launch styles. For example, a decoder resource named

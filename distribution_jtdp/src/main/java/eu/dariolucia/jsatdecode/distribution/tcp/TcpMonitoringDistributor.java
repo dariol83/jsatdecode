@@ -2,6 +2,7 @@ package eu.dariolucia.jsatdecode.distribution.tcp;
 
 import eu.dariolucia.jsatdecode.api.distribution.DistributionSnapshot;
 import eu.dariolucia.jsatdecode.api.distribution.EventSeverity;
+import eu.dariolucia.jsatdecode.api.distribution.InitialMonitoringSnapshot;
 import eu.dariolucia.jsatdecode.api.distribution.MonitoringDistributor;
 import eu.dariolucia.jsatdecode.api.distribution.MonitoringDistributorDescriptor;
 import eu.dariolucia.jsatdecode.api.distribution.OverflowPolicy;
@@ -27,7 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * bounded FIFO. Events are sent promptly; snapshots update one immutable current
  * observation and are broadcast only at the configured monotonic cadence.
  */
-public final class TcpMonitoringDistributor implements MonitoringDistributor {
+public final class TcpMonitoringDistributor implements MonitoringDistributor, InitialMonitoringSnapshot {
     private record Observation(MonitoringSnapshot snapshot, byte status, long frequency, long accepted) { }
     private record Publication(Observation observation, RuntimeEvent event) { }
     private record OverflowNotification(long timestamp, Observation observation) { }

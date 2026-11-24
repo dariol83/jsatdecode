@@ -29,7 +29,7 @@ mvn verify
 mvn -pl core -am verify
 ```
 
-The seven Java artifacts are explicit Java Platform Module System (JPMS) modules.
+The nine Java artifacts are explicit Java Platform Module System (JPMS) modules.
 See [Java modules](core/docs/java-modules.md) for their names, exported APIs,
 service-provider registration and module-path commands.
 
@@ -71,6 +71,7 @@ bin/jsatinspector.bat --help
 
 - [API module](api/README.md) - Public contracts and dependency-free utilities
 - [File sources](source_file/README.md) and [FMComms2 source](source_fmcomms2/README.md) - Independent acquisition providers
+- [ZMQ distribution](distribution_zmq/README.md) and [JTDP distribution](distribution_jtdp/README.md) - Independent output providers
 - [Configuration reference](core/docs/configuration-reference.md) - All source and distribution keys, defaults and ranges, including recording frequency offset
 - [Core Documentation](core/README.md) - Source, runtime, distribution, and monitoring configuration
 - [Specification](core/specs/JSatDecode_Specification.md) - Current framework behavior and contracts

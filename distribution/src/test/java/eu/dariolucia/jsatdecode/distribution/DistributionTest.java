@@ -25,9 +25,12 @@ public final class DistributionTest {
     private static final String DECODER_BASE_MODULE = "eu.dariolucia.jsatdecode.decoder.base";
     private static final String FILE_SOURCE_MODULE = "eu.dariolucia.jsatdecode.source.file";
     private static final String RADIO_SOURCE_MODULE = "eu.dariolucia.jsatdecode.source.fmcomms2";
+    private static final String ZMQ_MODULE = "eu.dariolucia.jsatdecode.distribution.zmq";
+    private static final String JTDP_MODULE = "eu.dariolucia.jsatdecode.distribution.jtdp";
     private static final Set<String> APPLICATION_MODULES = Set.of(API_MODULE, CORE_MODULE,
             DECODER_BASE_MODULE, "eu.dariolucia.jsatdecode.decoder.elektrol.ggak",
-            "eu.dariolucia.jsatdecode.decoder.hinode", FILE_SOURCE_MODULE, RADIO_SOURCE_MODULE);
+            "eu.dariolucia.jsatdecode.decoder.hinode", FILE_SOURCE_MODULE, RADIO_SOURCE_MODULE,
+            ZMQ_MODULE, JTDP_MODULE);
     private static final Set<String> DECODERS = Set.of("dummy", "elektrol_ggak", "hinode_s_tlm");
 
     private DistributionTest() { }
@@ -46,7 +49,8 @@ public final class DistributionTest {
             jars = entries.map(path -> path.getFileName().toString()).collect(Collectors.toSet());
         }
         for (String artifact : List.of("jsatdecode-api", "jsatdecode-core", "jsatdecode-source-file",
-                "jsatdecode-source-fmcomms2", "decoder-base", "decoder-elektrol-ggak", "decoder-hinode",
+                "jsatdecode-source-fmcomms2", "jsatdecode-distribution-zmq", "jsatdecode-distribution-jtdp",
+                "decoder-base", "decoder-elektrol-ggak", "decoder-hinode",
                 "jeromq", "jradio", "JTransforms",
                 "JLargeArrays", "commons-math3", "ascii85", "jnacl", "metrics-core", "slf4j-api", "ssdv4j")) {
             check(jars.stream().anyMatch(name -> name.startsWith(artifact + "-") && name.endsWith(".jar")),
@@ -67,6 +71,7 @@ public final class DistributionTest {
         check(modules.exitCode() == 0, "Distribution module graph is invalid:\n" + modules.output());
         smokeIndependentConsumers(lib, working);
         smokeIndependentSources(lib, working);
+        smokeIndependentDistributors(lib, working);
         smokeNamedConsumer(lib, working);
 
         // Both a quoted config path and its relative input path must survive the scripts.
@@ -105,6 +110,8 @@ public final class DistributionTest {
         checkProjectRequirements(finder, DECODER_BASE_MODULE, Set.of(API_MODULE));
         checkProjectRequirements(finder, FILE_SOURCE_MODULE, Set.of(API_MODULE));
         checkProjectRequirements(finder, RADIO_SOURCE_MODULE, Set.of(API_MODULE));
+        checkProjectRequirements(finder, ZMQ_MODULE, Set.of(API_MODULE));
+        checkProjectRequirements(finder, JTDP_MODULE, Set.of(API_MODULE));
         for (String decoder : List.of("eu.dariolucia.jsatdecode.decoder.elektrol.ggak",
                 "eu.dariolucia.jsatdecode.decoder.hinode")) {
             checkProjectRequirements(finder, decoder, Set.of(API_MODULE, DECODER_BASE_MODULE));
@@ -298,6 +305,113 @@ public final class DistributionTest {
                     "consumer.SourceConsumer", label, "classpath"), working, false);
             check(classpath.exitCode() == 0 && classpath.output().contains("sources passed"),
                     "Independent classpath " + label + " source failed:\n" + classpath.output());
+        }
+    }
+
+    private static void smokeIndependentDistributors(Path lib, Path working) throws Exception {
+        Path api = artifact(lib, "jsatdecode-api");
+        Path source = Files.createDirectories(working.resolve("distribution consumer source"));
+        Path classes = Files.createDirectories(working.resolve("distribution consumer classes"));
+        Path descriptor = source.resolve("module-info.java");
+        Path application = source.resolve("DistributionConsumer.java");
+        Files.writeString(descriptor, """
+                module jsatdecode.distributionconsumer {
+                    requires eu.dariolucia.jsatdecode.api;
+                    uses eu.dariolucia.jsatdecode.api.distribution.FrameDistributorFactory;
+                    uses eu.dariolucia.jsatdecode.api.distribution.MonitoringDistributorFactory;
+                    uses eu.dariolucia.jsatdecode.api.distribution.DistributionConfigurationNormalizer;
+                }
+                """, StandardCharsets.UTF_8);
+        Files.writeString(application, """
+                package consumer;
+                import eu.dariolucia.jsatdecode.api.config.Configuration;
+                import eu.dariolucia.jsatdecode.api.distribution.*;
+                import eu.dariolucia.jsatdecode.api.frame.AnnotatedFrame;
+                import eu.dariolucia.jsatdecode.api.lifecycle.ComponentState;
+                import eu.dariolucia.jsatdecode.api.monitoring.MonitoringSnapshot;
+                import java.io.DataInputStream;
+                import java.net.ServerSocket;
+                import java.nio.charset.StandardCharsets;
+                import java.nio.file.Files;
+                import java.util.*;
+                import java.util.stream.Collectors;
+
+                public final class DistributionConsumer {
+                    public static void main(String[] args) throws Exception {
+                        boolean zmq = args[0].equals("zmq"), named = args[1].equals("named");
+                        String module = "eu.dariolucia.jsatdecode.distribution." + (zmq ? "zmq" : "jtdp");
+                        var frames = ServiceLoader.load(FrameDistributorFactory.class).stream().map(ServiceLoader.Provider::get)
+                                .collect(Collectors.toMap(f -> f.descriptor().id(), f -> f));
+                        var monitoring = ServiceLoader.load(MonitoringDistributorFactory.class).stream().map(ServiceLoader.Provider::get)
+                                .collect(Collectors.toMap(f -> f.descriptor().id(), f -> f));
+                        var normalizers = ServiceLoader.load(DistributionConfigurationNormalizer.class).stream().map(ServiceLoader.Provider::get).toList();
+                        check(frames.keySet().equals(zmq ? Set.of("zmq", "frame-file") : Set.of("tcp")), "frame providers: " + frames.keySet());
+                        check(monitoring.keySet().equals(Set.of(zmq ? "zmq" : "tcp")), "monitoring providers: " + monitoring.keySet());
+                        check(normalizers.size() == (zmq ? 0 : 1), "normalizers: " + normalizers.size());
+                        if (named) {
+                            Set<String> modules = ModuleLayer.boot().modules().stream().map(Module::getName)
+                                    .filter(n -> n.startsWith("eu.dariolucia.jsatdecode.")).collect(Collectors.toSet());
+                            check(modules.equals(Set.of("eu.dariolucia.jsatdecode.api", module)), "unexpected modules: " + modules);
+                            for (var factory : frames.values()) check(module.equals(factory.getClass().getModule().getName()), "frame owner");
+                            for (var factory : monitoring.values()) check(module.equals(factory.getClass().getModule().getName()), "monitoring owner");
+                        } else {
+                            for (var factory : frames.values()) check(!factory.getClass().getModule().isNamed(), "classpath frame provider");
+                        }
+                        int port;
+                        try (var reserved = new ServerSocket(0)) { port = reserved.getLocalPort(); }
+                        Configuration frameSettings = zmq ? new Configuration(Map.of("decoder", "test", "endpoint", "tcp://127.0.0.1:*"))
+                                : new Configuration(Map.of("port", port, "max_frame_buffer", 1));
+                        Configuration monitorSettings = zmq ? new Configuration(Map.of("decoder", "test", "endpoint", "tcp://127.0.0.1:*"))
+                                : new Configuration(Map.of("port", port));
+                        if (!zmq) {
+                            var normalized = normalizers.getFirst().normalize(new Configuration(Map.of(
+                                    "distribution.tcp.port", port, "distribution.frames.type", "tcp", "distribution.monitoring.type", "tcp")));
+                            check(normalized.getInt("distribution.frames.port") == port
+                                    && normalized.getInt("distribution.monitoring.port") == port, "shared listener aliases");
+                        }
+                        try (var frame = frames.get(zmq ? "zmq" : "tcp").create(frameSettings);
+                             var monitor = monitoring.get(zmq ? "zmq" : "tcp").create(monitorSettings)) {
+                            frame.start(); monitor.start();
+                            check(frame.state() == ComponentState.RUNNING && monitor.state() == ComponentState.RUNNING, "providers did not start");
+                            frame.distribute(new AnnotatedFrame(new byte[]{1, 2, 3}, 123, Map.of()));
+                            monitor.publishMonitoring(new MonitoringSnapshot(123, Map.of()));
+                            frame.stop(); monitor.stop();
+                        }
+                        if (zmq) {
+                            var folder = Files.createTempDirectory("isolated-frame-file-");
+                            try (var recording = frames.get("frame-file").create(new Configuration(Map.of("folder", folder.toString(), "decoder", "test")))) {
+                                recording.start();
+                                recording.distribute(new AnnotatedFrame(new byte[]{1, 2, 3}, 123, Map.of()));
+                                recording.stop();
+                                check(recording.monitoringSnapshot().messagesSent() == 1, "recording did not drain");
+                            }
+                            try (var paths = Files.list(folder); var input = new DataInputStream(Files.newInputStream(paths.findFirst().orElseThrow()))) {
+                                check(new String(input.readNBytes(input.readInt()), StandardCharsets.US_ASCII).equals("satdecode.v1.frame"), "recorded topic");
+                                check(input.readNBytes(input.readInt()).length > 0, "recorded metadata");
+                                check(Arrays.equals(input.readNBytes(input.readInt()), new byte[]{1, 2, 3}) && input.read() == -1, "recorded payload");
+                            }
+                        }
+                        System.out.println("Independent " + args[0] + " distribution passed on " + args[1]);
+                    }
+                    private static void check(boolean condition, String message) { if (!condition) throw new AssertionError(message); }
+                }
+                """, StandardCharsets.UTF_8);
+        Result compilation = run(List.of(javaTool("javac"), "--module-path", api.toString(),
+                "-d", classes.toString(), descriptor.toString(), application.toString()), working, false);
+        check(compilation.exitCode() == 0, "Independent distribution consumer did not compile:\n" + compilation.output());
+        for (boolean zmq : List.of(true, false)) {
+            String label = zmq ? "zmq" : "jtdp";
+            Path provider = artifact(lib, "jsatdecode-distribution-" + label);
+            String path = api + java.io.File.pathSeparator + provider + java.io.File.pathSeparator + classes;
+            if (zmq) path += java.io.File.pathSeparator + artifact(lib, "jeromq") + java.io.File.pathSeparator + artifact(lib, "jnacl");
+            Result named = run(List.of(javaTool("java"), "--module-path", path, "--module",
+                    "jsatdecode.distributionconsumer/consumer.DistributionConsumer", label, "named"), working, false);
+            check(named.exitCode() == 0 && named.output().contains("distribution passed"),
+                    "Independent named " + label + " distribution failed:\n" + named.output());
+            Result classpath = run(List.of(javaTool("java"), "--class-path", path,
+                    "consumer.DistributionConsumer", label, "classpath"), working, false);
+            check(classpath.exitCode() == 0 && classpath.output().contains("distribution passed"),
+                    "Independent classpath " + label + " distribution failed:\n" + classpath.output());
         }
     }
 

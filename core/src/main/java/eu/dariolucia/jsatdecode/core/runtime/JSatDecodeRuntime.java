@@ -15,8 +15,6 @@ import eu.dariolucia.jsatdecode.api.source.SampleSourceFactory;
 import eu.dariolucia.jsatdecode.api.taps.TapProvider;
 import eu.dariolucia.jsatdecode.core.config.DistributionConfiguration;
 import eu.dariolucia.jsatdecode.core.registry.FactoryRegistry;
-import eu.dariolucia.jsatdecode.distribution.tcp.TcpSettings;
-import eu.dariolucia.jsatdecode.distribution.tcp.TcpMonitoringDistributor;
 
 import java.util.*;
 
@@ -87,7 +85,9 @@ public final class JSatDecodeRuntime implements LifecycleComponent, Monitorable 
      * @return owned runtime
      */
     public static JSatDecodeRuntime create(Configuration configuration) {
-        Configuration config = TcpSettings.normalizeConfiguration(DistributionConfiguration.normalize(configuration));
+        Configuration config = DistributionConfiguration.normalize(configuration);
+        for (var normalizer : ServiceLoader.load(DistributionConfigurationNormalizer.class))
+            config = normalizer.normalize(config);
         if (config.asMap().containsKey("ui.enabled")) config.getBoolean("ui.enabled");
         boolean verbose = config.asMap().containsKey("logging.verbose") && config.getBoolean("logging.verbose");
         double outputFrequencyOffset = config.asMap().containsKey("source.output_frequency_offset")
@@ -157,10 +157,10 @@ public final class JSatDecodeRuntime implements LifecycleComponent, Monitorable 
         try {
             for (var c : startup) c.start();
             state = ComponentState.RUNNING;
-            if (monitoring.stream().anyMatch(output -> output instanceof TcpMonitoringDistributor)) {
+            if (monitoring.stream().anyMatch(output -> output instanceof InitialMonitoringSnapshot)) {
                 var initial = monitoringSnapshot();
                 for (var output : monitoring)
-                    if (output instanceof TcpMonitoringDistributor) output.publishMonitoring(initial);
+                    if (output instanceof InitialMonitoringSnapshot) output.publishMonitoring(initial);
             }
             event("runtime.started", "Runtime started");
         } catch (Exception | Error e) {

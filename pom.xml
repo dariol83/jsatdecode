@@ -35,6 +35,8 @@
         <module>api</module>
         <module>source_file</module>
         <module>source_fmcomms2</module>
+        <module>distribution_zmq</module>
+        <module>distribution_jtdp</module>
         <module>core</module>
         <module>decoder_base</module>
         <module>decoder_elektrol_ggak</module>

@@ -108,4 +108,15 @@ class TcpDistributionIntegrationTest {
         assertThrows(ConfigurationException.class,()->JSatDecodeRuntime.create(new Configuration(values)));
         assertFalse(TcpServerRegistry.hasServer(port));
     }
+
+    @Test void sharedSettingsAreValidatedBeforeCreatingNonTcpOutputs() throws Exception {
+        int port = TcpTestSupport.port();
+        var values = new LinkedHashMap<>(config(port, true).asMap());
+        values.put("distribution.frames.type", "synthetic");
+        values.put("distribution.monitoring.type", "synthetic");
+        values.put("distribution.tcp.unknown", true);
+        var error = assertThrows(ConfigurationException.class, () -> JSatDecodeRuntime.create(new Configuration(values)));
+        assertTrue(error.getMessage().contains("Unknown shared TCP setting"));
+        assertFalse(TcpServerRegistry.hasServer(port));
+    }
 }

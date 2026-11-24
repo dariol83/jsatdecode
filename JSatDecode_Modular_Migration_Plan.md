@@ -68,10 +68,10 @@
 
 - First assess whether existing source contracts already allow Inspector to discover/select/configure implementations generically.
 - **Only if insufficient**, introduce the smallest backward-compatible API operation or companion optional capability interface to expose source-specific configuration-property descriptors (e.g., name/type/default/range/allowed values), without adding implementation classes to `api`.
-- Update the descriptor to include which configuration properties can be asked to be updated **at runtime**, i.e. with the source already running. The update shall be backward-compatible.
+- Update the descriptor to include which configuration properties can be asked to be updated **at runtime**, i.e. with the source already running. Such update shall be backward-compatible.
 - Update existing source providers and generic configuration consumers to honor these descriptors. Keep all existing configuration files, keys, defaults and CLI behavior valid; no changes to decoders.
 
-Note: JSatDecode application does not require the use of this mechanism. JSatInspector/Inspector will in step 7.
+Note: JSatDecode application does not require the use of this mechanism. JSatInspector/Inspector will in step 7, since the UI shall allow to select one source to use, and based on the selection, the specific controls for the selected source shall be shown.
 
 **Gate:** Source selection and configuration can be implemented generically; current source behavior/configuration remains unchanged. If unnecessary, record “no API change required.”
 

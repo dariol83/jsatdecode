@@ -26,8 +26,10 @@ configuration, DC blocking and monitoring support. Factories are discovered
 through `ServiceLoader`; include mission JARs and their dependencies on the
 module path or classpath to make them available.
 
-Frame and monitoring outputs include synthetic consumers and SatDecode v1 ZMQ
-publishers. `--store <folder>` adds decoded-frame recording alongside configured
+Frame and monitoring outputs include synthetic consumers, SatDecode v1 ZMQ and
+TCP/JTDP publishers. The [ZMQ](../distribution_zmq/README.md) and
+[JTDP](../distribution_jtdp/README.md) providers are discovered independently.
+`--store <folder>` adds decoded-frame recording alongside configured
 outputs; see [frame recording](docs/frame-recording.md). FMComms2 can also record
 source IQ with `source.recording.enabled=true`; the default destination is
 Java's `user.home`. See [IQ recording](docs/iq-recording.md).
@@ -73,7 +75,7 @@ main entry point; its dependencies are separate JARs. See
 and service declarations.
 
 Maven's Exec plugin runs self-contained API and core test harnesses. The full
-reactor also runs source integration tests for IIOD acquisition and recording.
+reactor also runs source and distribution integration tests, including IIOD acquisition and recording.
 These cover file sources, runtime, verbose logging, the ZMQ client, Swing
 monitoring and Inspector. Failed
 checks fail the build without requiring `-ea`; Surefire runs the JUnit tests

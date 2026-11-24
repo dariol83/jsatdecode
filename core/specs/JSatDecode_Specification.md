@@ -14,23 +14,25 @@ The Maven reactor contains these modules:
 | `api` | Public contracts and reusable FFT, monitoring, tap and time utilities |
 | `source_file` | WAV, CF32 and CS16 source providers |
 | `source_fmcomms2` | FMComms2/PlutoPlus source provider |
+| `distribution_zmq` | SatDecode ZMQ output and frame recording providers |
+| `distribution_jtdp` | TCP/JTDP output providers and shared listener registry |
 | `core` | Configuration, runtime, outputs, monitoring, Swing observer and JSatInspector |
 | `decoder_base` | Shared decoder lifecycle, monitoring, configuration and DSP adapters |
 | `decoder_elektrol_ggak` | Elektro-L GGAK decoder |
 | `decoder_hinode` | Hinode decoder |
-| `integration_tests` | Source integration checks across modules |
+| `integration_tests` | Source and distribution integration checks across modules |
 | `distribution` | Standalone application archive and launch scripts |
 
 Java 25 is the compilation baseline. Public API signatures use Java SE and other
-framework API types; the API has no external dependencies. Core uses JeroMQ
-internally for ZMQ transport. Each source module depends only on API among
+framework API types; the API has no external dependencies. The ZMQ provider uses
+JeroMQ internally. Each source and distribution module depends only on API among
 JSatDecode modules. The shared decoder library depends on API and
 jradio 1.121; mission modules depend on API and the shared library. Core has no
 dependency on mission modules or jradio.
 
-The seven Java JARs contain explicit JPMS descriptors. Core packages the
+The nine Java JARs contain explicit JPMS descriptors. Core packages the
 `MainLauncher` entry point in `eu.dariolucia.jsatdecode.core`. The standalone
-distribution includes the API, source and core JARs, shared decoder support, the two mission
+distribution includes the API, source, distribution and core JARs, shared decoder support, the two mission
 modules and their runtime dependencies. The distribution launchers use the Java
 module path and discover factories through descriptor `uses`/`provides`
 declarations. Service-provider resources also retain classpath compatibility.

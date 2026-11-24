@@ -233,6 +233,33 @@ public final class RuntimeTest {
                         "Runtime reports the original managed source failure");
             }
         }
+
+        List<String> observations = new ArrayList<>();
+        class ObservingOutput implements MonitoringDistributor {
+            final String id;
+            ComponentState state = ComponentState.CONFIGURED;
+            ObservingOutput(String id) { this.id = id; }
+            public MonitoringDistributorDescriptor descriptor() { return new MonitoringDistributorDescriptor(id,id,"1","Test"); }
+            public void publishMonitoring(MonitoringSnapshot snapshot) {
+                check(snapshot.values().get("runtime.state") == ComponentState.RUNNING, "initial snapshot after startup");
+                observations.add(id + ".snapshot");
+            }
+            public void publishEvent(RuntimeEvent event) { observations.add(id + "." + event.type()); }
+            public DistributionSnapshot monitoringSnapshot() { return new DistributionSnapshot(true,true,0,0,0,0,0,1,0); }
+            public void start() { state = ComponentState.RUNNING; }
+            public void stop() { state = ComponentState.STOPPED; }
+            public void close() { state = ComponentState.CLOSED; }
+            public ComponentState state() { return state; }
+        }
+        class InitialOutput extends ObservingOutput implements InitialMonitoringSnapshot {
+            InitialOutput() { super("initial"); }
+        }
+        try (var observingRuntime = new JSatDecodeRuntime(new Source(), new DummyDecoder(), List.of(),
+                List.of(new InitialOutput(), new ObservingOutput("ordinary")))) {
+            observingRuntime.start();
+            check(observations.equals(List.of("initial.snapshot", "initial.runtime.started", "ordinary.runtime.started")),
+                    "initial snapshot is selective and precedes the runtime-started event");
+        }
     }
     private static void waitLatch(CountDownLatch latch) {
         try { if(!latch.await(5,TimeUnit.SECONDS)) throw new AssertionError("latch timeout"); }

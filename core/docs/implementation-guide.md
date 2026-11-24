@@ -14,14 +14,16 @@ dependency order:
 | `api` | Public contracts and reusable FFT, monitoring, tap and time utilities; no external dependencies |
 | `source_file` | WAV, CF32 and CS16 source providers |
 | `source_fmcomms2` | FMComms2/PlutoPlus source provider |
-| `core` | Runtime, distribution adapters, monitoring UI and JSatInspector |
+| `distribution_zmq` | SatDecode ZMQ output and frame recording providers |
+| `distribution_jtdp` | TCP/JTDP output providers and shared listener registry |
+| `core` | Runtime, synthetic outputs, monitoring UI and JSatInspector |
 | `decoder_base` | Shared lifecycle, configuration, DSP and monitoring helpers for decoder implementations |
 | `decoder_elektrol_ggak` | Elektro-L GGAK decoder |
 | `decoder_hinode` | Hinode telemetry decoder |
-| `integration_tests` | Cross-module source integration checks; no production artifact |
+| `integration_tests` | Cross-module source and distribution checks; no production artifact |
 | `distribution` | Standalone application packages, launchers and packaged-distribution checks |
 
-Each source module depends only on API among JSatDecode modules. Core and
+Each source and distribution module depends only on API among JSatDecode modules. Core and
 Inspector discover source factories through `ServiceLoader`; Inspector currently
 selects the FMComms2 factory and retains its existing radio settings.
 `decoder_base` depends on API and jradio 1.121. Mission decoders use API and the
@@ -31,7 +33,7 @@ Mission DSP, framing, lock detectors and accounting remain in the decoder
 modules. Core has no dependency on these modules. Factories are discovered
 through `ServiceLoader`.
 
-The seven Java modules each contain a `module-info.java`; `distribution` and
+The nine Java modules each contain a `module-info.java`; `distribution` and
 `integration_tests` are Maven-only projects. JPMS names, exported packages, service declarations and
 module-path development commands are documented in [Java modules](java-modules.md).
 

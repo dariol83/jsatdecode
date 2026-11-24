@@ -31,6 +31,7 @@
             <includes>
                 <include>README.md</include><include>distribution/README.md</include>
                 <include>api/README.md</include><include>source_file/README.md</include><include>source_fmcomms2/README.md</include>
+                <include>distribution_zmq/README.md</include><include>distribution_jtdp/README.md</include>
                 <include>core/README.md</include><include>core/docs/**</include><include>core/examples/**</include>
                 <include>decoder_*/README.md</include><include>decoder_*/docs/**</include><include>decoder_*/examples/**</include>
             </includes>

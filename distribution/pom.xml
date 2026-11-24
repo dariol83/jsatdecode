@@ -26,6 +26,14 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-distribution-zmq</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-distribution-jtdp</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-core</artifactId>
             <version>${project.version}</version>
         </dependency>

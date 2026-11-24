@@ -1,0 +1,2 @@
+eu.dariolucia.jsatdecode.distribution.zmq.ZmqFrameDistributorFactory
+eu.dariolucia.jsatdecode.distribution.zmq.FrameFileDistributorFactory

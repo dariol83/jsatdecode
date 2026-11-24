@@ -28,7 +28,10 @@ def main() -> None:
     if not jars:
         raise RuntimeError("Run Maven verify to resolve test-dependencies first")
     import os
-    classpath = os.pathsep.join(map(str, [PROJECT / "target/classes", PROJECT / "target/test-classes", *jars]))
+    integration_classes = PROJECT.parent / "integration_tests/target/test-classes"
+    if not integration_classes.is_dir():
+        raise RuntimeError("Run the full Maven verify to compile integration tests first")
+    classpath = os.pathsep.join(map(str, [PROJECT / "target/classes", PROJECT / "target/test-classes", integration_classes, *jars]))
     process = subprocess.Popen(
         [args.java, "--limit-modules", "java.base", "-cp", classpath,
          "eu.dariolucia.jsatdecode.distribution.zmq.ZmqInteropPublisher"],

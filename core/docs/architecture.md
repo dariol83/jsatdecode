@@ -5,9 +5,10 @@ AnnotatedFrame -> FrameDistributor`. Monitoring snapshots, runtime events and
 RF/baseband/symbol taps are independent observations. Observers must never block,
 pace or backpressure acquisition or DSP.
 
-The root Maven reactor builds core, `decoder_base`, `decoder_elektrol_ggak`,
-`decoder_hinode` and `distribution` in dependency order. Decoder modules depend
-on core, the shared library and jradio 1.121. Core has no dependency on a mission
+The root Maven reactor builds API, source and distribution providers, core,
+`decoder_base`, `decoder_elektrol_ggak`, `decoder_hinode` and the standalone
+`distribution` in dependency order. Decoder modules depend on API, the shared
+library and jradio 1.121. Core has no production dependency on a provider, a mission
 module or the shared decoder library. Shared infrastructure is documented in
 [decoder_base](../../decoder_base/README.md); numerical DSP, framing and mission
 policies belong to each decoder.
@@ -28,7 +29,7 @@ Count-only test runs own separate sources and preallocated primitive read
 diagnostics. Their functional counting callback performs no Swing or filesystem
 work. Management stops and joins each run before logging its diagnostics.
 
-Core, the shared library and both mission JARs contain explicit JPMS descriptors.
+API, core, the providers, the shared library and both mission JARs contain explicit JPMS descriptors.
 The [standalone distribution](../../distribution/README.md) includes these same
 JARs and their runtime dependencies. Launchers use `--module-path` and the core
 module `eu.dariolucia.jsatdecode.core`. Descriptor `uses` and `provides`
@@ -60,6 +61,7 @@ All packages below start with `eu.dariolucia.jsatdecode`.
 | `decoder.dummy` | Deterministic raw-IQ integration decoder |
 | `distribution.zmq` | SatDecode v1 PUB sockets, canonical CBOR, UTC mapping, bounded workers and frame-file recording |
 | `distribution.zmq.client` | SUB client, bounded wire decoding, callbacks and channel observations |
+| `distribution.tcp` and subpackages | JTDP adapters, shared listener, wire codecs and TCP client |
 | `ui.swing` | Optional status/quality window, spectra, constellation and bounded EDT models |
 | `inspector` | Independent acquisition, spectrum/waterfall display and IQ recording application |
 | `cli` | Configuration/overrides, listing, runtime execution and shutdown hook |

@@ -5,7 +5,6 @@ import eu.dariolucia.jsatdecode.api.config.ConfigurationException;
 import eu.dariolucia.jsatdecode.api.distribution.*;
 import eu.dariolucia.jsatdecode.api.frame.AnnotatedFrame;
 import eu.dariolucia.jsatdecode.api.lifecycle.ComponentState;
-import eu.dariolucia.jsatdecode.core.distribution.SyntheticFrameDistributor;
 
 import java.io.BufferedOutputStream;
 import java.io.DataOutputStream;
@@ -30,7 +29,7 @@ public final class FrameFileDistributor implements FrameDistributor {
     private final Path folder;
     private final String decoder;
     private final SatDecodeWire wire;
-    private final SyntheticFrameDistributor output;
+    private final AsyncOutput<AnnotatedFrame> output;
     private DataOutputStream stream;
     private long sequence;
     private volatile Path file;
@@ -54,7 +53,7 @@ public final class FrameFileDistributor implements FrameDistributor {
         this.decoder = decoder;
         ZmqSettings settings = ZmqSettings.read(configuration, false);
         wire = new SatDecodeWire(settings, clock);
-        output = new SyntheticFrameDistributor(settings.capacity(), OverflowPolicy.FAIL_RUNTIME, this::write);
+        output = new AsyncOutput<>(settings.capacity(), OverflowPolicy.FAIL_RUNTIME, this::write);
     }
 
     private void write(AnnotatedFrame frame) {
@@ -85,7 +84,7 @@ public final class FrameFileDistributor implements FrameDistributor {
 
     @Override
     public void distribute(AnnotatedFrame frame) {
-        output.distribute(frame);
+        output.offer(frame);
     }
 
     @Override
@@ -140,7 +139,7 @@ public final class FrameFileDistributor implements FrameDistributor {
 
     @Override
     public DistributionSnapshot monitoringSnapshot() {
-        DistributionSnapshot snapshot = output.monitoringSnapshot();
+        DistributionSnapshot snapshot = output.snapshot();
         return failure == null ? snapshot : new DistributionSnapshot(false, false, snapshot.messagesReceived(), snapshot.messagesSent(), snapshot.messagesDropped(), snapshot.errors() + 1,
                 snapshot.queueDepth(), snapshot.queueCapacity(), snapshot.timestampNanos());
     }
