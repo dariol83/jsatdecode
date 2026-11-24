@@ -218,6 +218,21 @@ public final class RuntimeTest {
         check(calls.equals(List.of("decoder.start","source.stop","decoder.stop","source.close","decoder.close")),"startup rollback order/exactly once close");
         check(runtime.failure().isPresent() && runtime.state()==ComponentState.CLOSED,"startup diagnostic");
         expect(IllegalStateException.class,()->{try{runtime.start();}catch(RuntimeException e){throw e;}catch(Exception e){throw new RuntimeException(e);}});
+
+        IllegalStateException sourceFailure = new IllegalStateException("original source failure");
+        class ManagedFailureSource extends Source implements ManagedSampleSource {
+            @Override public void start() { state = ComponentState.FAILED; }
+            @Override public void requestStop() { }
+            @Override public Optional<Throwable> failure() { return Optional.of(sourceFailure); }
+        }
+        try (var managedRuntime = new JSatDecodeRuntime(new ManagedFailureSource(), new DummyDecoder(), List.of(), List.of())) {
+            managedRuntime.start();
+            try { managedRuntime.awaitCompletion(); throw new AssertionError("Expected managed source failure"); }
+            catch (OutputException expected) {
+                check(expected.getCause() == sourceFailure && expected.getMessage().contains("original source failure"),
+                        "Runtime reports the original managed source failure");
+            }
+        }
     }
     private static void waitLatch(CountDownLatch latch) {
         try { if(!latch.await(5,TimeUnit.SECONDS)) throw new AssertionError("latch timeout"); }

@@ -18,6 +18,14 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-source-file</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-source-fmcomms2</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-core</artifactId>
             <version>${project.version}</version>
         </dependency>

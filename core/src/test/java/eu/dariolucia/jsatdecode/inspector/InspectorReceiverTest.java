@@ -1,6 +1,7 @@
 package eu.dariolucia.jsatdecode.inspector;
 
 import eu.dariolucia.jsatdecode.api.source.ComplexSampleBlock;
+import eu.dariolucia.jsatdecode.api.source.ManagedSampleSource;
 import eu.dariolucia.jsatdecode.dsp.fft.WindowFunction;
 
 import java.io.*;
@@ -19,6 +20,7 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Self-contained acquisition mapping, continuity and anti-aliasing checks. */
 public final class InspectorReceiverTest {
@@ -32,6 +34,7 @@ public final class InspectorReceiverTest {
         mapping();
         decimation();
         continuity();
+        networkDiagnostics();
         for (RecordingFormat format : RecordingFormat.values()) networkRecording(format);
         System.out.println("JSatInspector receiver: " + checks + " checks passed");
     }
@@ -166,6 +169,37 @@ public final class InspectorReceiverTest {
         } finally {
             try (var paths = Files.walk(folder)) {
                 for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);
+            }
+        }
+    }
+
+    private static void networkDiagnostics() throws Exception {
+        try (IiodServer server = new IiodServer()) {
+            InspectorSettings d = settings(500000, 1);
+            InspectorSettings configuration = new InspectorSettings("127.0.0.1:" + server.port(), d.frequencyHz(), d.bandwidth(),
+                    d.sampleRate(), d.decimation(), d.gain(), d.rxBufferSamples(), d.minDb(), d.maxDb(), d.window(),
+                    d.fftRate(), d.fftSize(), d.averaging(), d.storageFolder(), false, d.windowWidth(), d.windowHeight());
+            AtomicReference<ManagedSampleSource> owner = new AtomicReference<>();
+            CountDownLatch read = new CountDownLatch(1);
+            AtomicInteger received = new AtomicInteger();
+            var capture = InspectorSources.diagnostic(InspectorReceiver.sourceConfiguration(configuration), 2,
+                    (utc, elapsed, samples) -> {
+                        received.set(samples);
+                        owner.get().requestStop();
+                        read.countDown();
+                    });
+            try (var source = capture.source()) {
+                owner.set(source);
+                source.setSampleSink(block -> { throw new AssertionError("Diagnostic source delivered IQ"); });
+                source.start();
+                server.release.countDown();
+                check(read.await(5, TimeUnit.SECONDS), "Discovered diagnostic provider reports the completed IIOD read");
+                source.stop();
+                var log = capture.diagnostics();
+                check(source.failure().isEmpty() && log.capturedReadCount() == 1 && log.overflowReadCount() == 0
+                                && log.sampleCount(0) == d.rxBufferSamples() && received.get() == d.rxBufferSamples()
+                                && log.elapsedNanos(0) == 0 && log.completionTimeNanos(0) > 0,
+                        "Discovered diagnostic provider preserves read callbacks and bounded log after cancellation");
             }
         }
     }

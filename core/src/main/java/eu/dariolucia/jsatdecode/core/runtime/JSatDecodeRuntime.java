@@ -9,6 +9,7 @@ import eu.dariolucia.jsatdecode.api.lifecycle.LifecycleComponent;
 import eu.dariolucia.jsatdecode.api.monitoring.Monitorable;
 import eu.dariolucia.jsatdecode.api.monitoring.MonitoringDescriptor;
 import eu.dariolucia.jsatdecode.api.monitoring.MonitoringSnapshot;
+import eu.dariolucia.jsatdecode.api.source.ManagedSampleSource;
 import eu.dariolucia.jsatdecode.api.source.SampleSource;
 import eu.dariolucia.jsatdecode.api.source.SampleSourceFactory;
 import eu.dariolucia.jsatdecode.api.taps.TapProvider;
@@ -343,15 +344,14 @@ public final class JSatDecodeRuntime implements LifecycleComponent, Monitorable 
 
     /**
      * Extracts the root failure from a component if available.
-     * Checks for components with failure() methods (like AbstractFileSampleSource and specific decoders).
+     * Checks the source capability and components with failure() methods.
      *
      * @param component the component that failed
      * @return the failure exception or null if not available
      */
     private Throwable getComponentFailure(LifecycleComponent component) {
-        // Check if it's a SampleSource with failure method (like AbstractFileSampleSource)
-        if (component instanceof eu.dariolucia.jsatdecode.source.file.AbstractFileSampleSource afs) {
-            return afs.failure().orElse(null);
+        if (component instanceof ManagedSampleSource managedSource) {
+            return managedSource.failure().orElse(null);
         }
 
         // Check for failure() method via reflection for any component

@@ -13,18 +13,17 @@ later must be available through `JAVA_HOME` or `PATH`; Maven is not needed at
 runtime. A graphical desktop is required to open the application; `--help`
 also works without a display.
 
-To build and run the individual core JAR from the repository root with Java 25
-or newer:
+To build and run core with its source providers from the repository root on
+Windows with Java 25 or newer:
 
 ```text
 mvn -pl core -am verify
-java -jar core/target/jsatdecoder.jar --inspector
+java -cp 'core/target/classes;core/target/test-dependencies/*' eu.dariolucia.jsatdecode.MainLauncher --inspector
 ```
 
-JSatInspector is packaged in the same JAR as JSatDecode. Use the `--inspector` flag
-to launch JSatInspector instead of the decoder CLI. No additional native libraries or
-installation are needed. A graphical desktop is required; `java -jar core/target/jsatdecoder.jar --inspector --help`
-also works without a display.
+Use `:` as the classpath separator on Linux/macOS. JSatInspector is packaged in
+the same JAR as JSatDecode. Use `--inspector` to select it; appending `--help`
+works without a display. No additional native libraries are needed.
 
 The collapsible right sidebar groups radio, FFT, waterfall and storage controls.
 The left side contains a spectrum and a horizontally aligned waterfall,

@@ -12,6 +12,12 @@ packages for shared tap and metric helpers. Core requires the API transitively;
 decoder modules use the API and shared decoder library without a production
 dependency on core. See [Java modules](../core/docs/java-modules.md).
 
+Sources may implement `ManagedSampleSource` for nonblocking cancellation and
+failure reporting. A factory may also implement `DiagnosticSampleSourceFactory`
+for a bounded, count-only read diagnostic. These capabilities let Inspector use
+the FMComms2 provider through the source service while retaining its current
+radio configuration and diagnostic behavior.
+
 Build and run the standalone API checks with JDK 25 and Maven:
 
 ```text

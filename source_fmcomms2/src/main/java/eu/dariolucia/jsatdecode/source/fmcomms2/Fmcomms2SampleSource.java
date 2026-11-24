@@ -63,7 +63,7 @@ import java.util.concurrent.TimeUnit;
  * filename UTC/identity, AGC gain semantics and playback.
  *
  */
-public final class Fmcomms2SampleSource implements SampleSource {
+public final class Fmcomms2SampleSource implements ManagedSampleSource {
     static final SourceDescriptor DESCRIPTOR = new SourceDescriptor("fmcomms2", "FMComms2 / PlutoPlus IIOD network", "1",
             "Pure Java TCP IIOD AD9361 complex IQ source");
     private final Object lifecycle = new Object();

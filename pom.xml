@@ -33,10 +33,13 @@
 
     <modules>
         <module>api</module>
+        <module>source_file</module>
+        <module>source_fmcomms2</module>
         <module>core</module>
         <module>decoder_base</module>
         <module>decoder_elektrol_ggak</module>
         <module>decoder_hinode</module>
+        <module>integration_tests</module>
         <module>distribution</module>
     </modules>
 

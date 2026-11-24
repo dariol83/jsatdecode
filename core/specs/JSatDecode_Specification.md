@@ -12,21 +12,25 @@ The Maven reactor contains these modules:
 | Module | Responsibility |
 | --- | --- |
 | `api` | Public contracts and reusable FFT, monitoring, tap and time utilities |
-| `core` | Configuration, runtime, sources, outputs, monitoring, Swing observer and JSatInspector |
+| `source_file` | WAV, CF32 and CS16 source providers |
+| `source_fmcomms2` | FMComms2/PlutoPlus source provider |
+| `core` | Configuration, runtime, outputs, monitoring, Swing observer and JSatInspector |
 | `decoder_base` | Shared decoder lifecycle, monitoring, configuration and DSP adapters |
 | `decoder_elektrol_ggak` | Elektro-L GGAK decoder |
 | `decoder_hinode` | Hinode decoder |
+| `integration_tests` | Source integration checks across modules |
 | `distribution` | Standalone application archive and launch scripts |
 
 Java 25 is the compilation baseline. Public API signatures use Java SE and other
 framework API types; the API has no external dependencies. Core uses JeroMQ
-internally for ZMQ transport. The shared decoder library depends on API and
+internally for ZMQ transport. Each source module depends only on API among
+JSatDecode modules. The shared decoder library depends on API and
 jradio 1.121; mission modules depend on API and the shared library. Core has no
 dependency on mission modules or jradio.
 
-The five Java JARs contain explicit JPMS descriptors. Core packages the
+The seven Java JARs contain explicit JPMS descriptors. Core packages the
 `MainLauncher` entry point in `eu.dariolucia.jsatdecode.core`. The standalone
-distribution includes the API and core JARs, shared decoder support, the two mission
+distribution includes the API, source and core JARs, shared decoder support, the two mission
 modules and their runtime dependencies. The distribution launchers use the Java
 module path and discover factories through descriptor `uses`/`provides`
 declarations. Service-provider resources also retain classpath compatibility.
@@ -77,7 +81,8 @@ Factories validate settings and return configured components without starting
 workers. Embedders can also supply explicit providers and configured components
 to `JSatDecodeRuntime`.
 
-The core source IDs are `wav`, `cf32`, `cs16` and `fmcomms2`. Core provides the
+The source IDs are `wav`, `cf32`, `cs16` and `fmcomms2`, supplied by the two
+independent source modules. Core provides the
 integration decoder `dummy`. Mission providers are supplied by the independent
 decoder modules. Frame-output IDs are `synthetic`, `zmq` and `frame-file`;
 monitoring-output IDs are `synthetic` and `zmq`.
@@ -394,8 +399,8 @@ mvn verify
 `mvn -pl core -am verify` builds and checks the API and framework. The reactor
 also runs shared-library and mission tests, packages the standalone distribution,
 and validates its content/launchers. Maven invokes the repository's Java test
-entry points; API and core tests cover contracts, observations, FFT, file sources,
-runtime ownership, Inspector behavior, the IIOD adapter and ZMQ clients. Desktop,
+entry points; API, core and source integration tests cover contracts, observations,
+FFT, file sources, runtime ownership, Inspector behavior, the IIOD adapter and ZMQ clients. Desktop,
 live-hardware and recording-driven tools require their stated environment or
 input fixtures. Component guides and test entry points document those
 requirements.

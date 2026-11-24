@@ -1,5 +1,7 @@
 package eu.dariolucia.jsatdecode.source.fmcomms2;
 
+import eu.dariolucia.jsatdecode.api.source.SourceReadDiagnostics;
+
 import java.util.Objects;
 
 /**
@@ -16,7 +18,7 @@ import java.util.Objects;
  * overwrites: excess reads increase {@link #overflowReadCount()} while the listener
  * still receives every successful completion. No logging or Swing work occurs here.
  */
-public final class ReadDiagnostics {
+public final class ReadDiagnostics implements SourceReadDiagnostics {
     private final long[] completionTimes;
     private final long[] elapsedTimes;
     private final int[] sampleCounts;

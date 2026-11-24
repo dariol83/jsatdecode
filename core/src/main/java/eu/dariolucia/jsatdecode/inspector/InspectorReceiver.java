@@ -3,7 +3,7 @@ package eu.dariolucia.jsatdecode.inspector;
 import eu.dariolucia.jsatdecode.api.config.Configuration;
 import eu.dariolucia.jsatdecode.api.lifecycle.ComponentState;
 import eu.dariolucia.jsatdecode.api.source.ComplexSampleBlock;
-import eu.dariolucia.jsatdecode.source.fmcomms2.Fmcomms2SampleSource;
+import eu.dariolucia.jsatdecode.api.source.ManagedSampleSource;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -20,7 +20,7 @@ final class InspectorReceiver implements AutoCloseable {
     private static final System.Logger LOG = System.getLogger(InspectorReceiver.class.getName());
     private static final int BLOCK_SAMPLES = 4096;
     private final InspectorSettings settings;
-    private final Fmcomms2SampleSource source;
+    private final ManagedSampleSource source;
     private final InspectorDecimator decimator;
     private final Consumer<ComplexSampleBlock> analysisSink;
     private final AtomicReference<IqRecorder> activeRecorder = new AtomicReference<>();
@@ -38,7 +38,7 @@ final class InspectorReceiver implements AutoCloseable {
         this.analysisSink = Objects.requireNonNull(analysisSink);
         acquisitionRate = acquisitionRate(settings.sampleRate());
         decimator = new InspectorDecimator(acquisitionRate / settings.sampleRate() * settings.decimation());
-        source = new Fmcomms2SampleSource(sourceConfiguration(settings));
+        source = InspectorSources.receiver(sourceConfiguration(settings));
         source.setSampleSink(this::accept);
     }
 

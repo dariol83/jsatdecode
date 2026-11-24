@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>eu.dariolucia.jsatdecode</groupId>
+    <artifactId>jsatdecode-source-integration-tests</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>JSatDecode source integration tests</name>
+    <properties>
+        <maven.compiler.release>25</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <skipTests>false</skipTests>
+    </properties>
+    <dependencies>
+        <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-core</artifactId><version>${project.version}</version><scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-source-file</artifactId><version>${project.version}</version><scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-source-fmcomms2</artifactId><version>${project.version}</version><scope>test</scope>
+        </dependency>
+    </dependencies>
+    <build><plugins>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.14.1</version>
+            <executions><execution><id>compile-source-integration-tests</id><phase>test-compile</phase>
+                <goals><goal>testCompile</goal></goals>
+            </execution></executions>
+        </plugin>
+        <plugin>
+            <groupId>org.codehaus.mojo</groupId><artifactId>exec-maven-plugin</artifactId><version>3.5.1</version>
+            <executions><execution><id>fmcomms2-source-tests</id><phase>test</phase><goals><goal>java</goal></goals>
+                <configuration><mainClass>eu.dariolucia.jsatdecode.source.fmcomms2.Fmcomms2SourceTest</mainClass>
+                    <classpathScope>test</classpathScope><skip>${skipTests}</skip></configuration>
+            </execution></executions>
+        </plugin>
+    </plugins></build>
+</project>

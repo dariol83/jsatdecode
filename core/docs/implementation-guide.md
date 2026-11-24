@@ -12,20 +12,27 @@ dependency order:
 | Module | Responsibility |
 | --- | --- |
 | `api` | Public contracts and reusable FFT, monitoring, tap and time utilities; no external dependencies |
-| `core` | Sources, runtime, distribution adapters, monitoring UI and JSatInspector |
+| `source_file` | WAV, CF32 and CS16 source providers |
+| `source_fmcomms2` | FMComms2/PlutoPlus source provider |
+| `core` | Runtime, distribution adapters, monitoring UI and JSatInspector |
 | `decoder_base` | Shared lifecycle, configuration, DSP and monitoring helpers for decoder implementations |
 | `decoder_elektrol_ggak` | Elektro-L GGAK decoder |
 | `decoder_hinode` | Hinode telemetry decoder |
+| `integration_tests` | Cross-module source integration checks; no production artifact |
 | `distribution` | Standalone application packages, launchers and packaged-distribution checks |
 
+Each source module depends only on API among JSatDecode modules. Core and
+Inspector discover source factories through `ServiceLoader`; Inspector currently
+selects the FMComms2 factory and retains its existing radio settings.
 `decoder_base` depends on API and jradio 1.121. Mission decoders use API and the
-shared decoder library; their runtime/desktop qualification tests also use core.
+shared decoder library; their runtime/desktop qualification tests also use core
+and the source providers.
 Mission DSP, framing, lock detectors and accounting remain in the decoder
 modules. Core has no dependency on these modules. Factories are discovered
 through `ServiceLoader`.
 
-The five Java modules each contain a `module-info.java`; `distribution` is a
-Maven packaging module. JPMS names, exported packages, service declarations and
+The seven Java modules each contain a `module-info.java`; `distribution` and
+`integration_tests` are Maven-only projects. JPMS names, exported packages, service declarations and
 module-path development commands are documented in [Java modules](java-modules.md).
 
 Run from the repository root:
@@ -41,7 +48,7 @@ are created in `distribution/target`. Their launchers select JSatDecode or
 JSatInspector and supply the module path and runtime dependencies. See the
 [distribution guide](../../distribution/README.md).
 
-API and core tests use executable Java test harnesses bound to Maven's test phase.
+API, core and integration tests use executable Java harnesses bound to Maven's test phase.
 These cover API contracts, bounded observation, FFT utilities, file sources,
 runtime behavior, native-source protocol handling, ZMQ clients, Swing models and
 Inspector behavior. Desktop and recording-dependent runners require their

@@ -171,10 +171,10 @@ channels, partial/failed writes and sparse long-file positions; no radio is need
 
 The opt-in `Cf32RecordingBenchmark` alternates recording OFF/ON with identical
 mock samples, dummy decoder and CRC consumer. From the repository root after
-test compilation:
+`mvn -pl integration_tests -am verify`:
 
 ```powershell
-java -cp 'core/target/classes;core/target/test-classes;core/target/test-dependencies/*' eu.dariolucia.jsatdecode.source.fmcomms2.Cf32RecordingBenchmark core/target/iq-benchmark 512 5 0
+java -cp 'integration_tests/target/test-classes;core/target/classes;core/target/test-dependencies/*' eu.dariolucia.jsatdecode.source.fmcomms2.Cf32RecordingBenchmark core/target/iq-benchmark 512 5 0
 ```
 
 Arguments are destination, buffers/run (65536 samples each), pairs, optional

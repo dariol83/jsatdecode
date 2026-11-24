@@ -40,6 +40,13 @@
         <dependency>
             <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-api</artifactId><version>${project.version}</version>
         </dependency>
+        <!-- Integration tests exercise the independently packaged providers. -->
+        <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-source-file</artifactId><version>${project.version}</version><scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-source-fmcomms2</artifactId><version>${project.version}</version><scope>test</scope>
+        </dependency>
         <!-- Implementation-only binding: no org.zeromq types in the stable API. -->
         <dependency>
             <groupId>org.zeromq</groupId><artifactId>jeromq</artifactId><version>0.6.0</version>
@@ -84,6 +91,7 @@
                             <compilerArgs>
                                 <arg>--add-modules</arg><arg>jdk.management</arg>
                                 <arg>--add-reads</arg><arg>eu.dariolucia.jsatdecode.core=jdk.management</arg>
+                                <arg>--add-reads</arg><arg>eu.dariolucia.jsatdecode.core=ALL-UNNAMED</arg>
                             </compilerArgs>
                         </configuration>
                     </execution>
@@ -124,10 +132,6 @@
                     <execution>
                         <id>inspector-analysis-tests</id><phase>test</phase><goals><goal>java</goal></goals>
                         <configuration><mainClass>eu.dariolucia.jsatdecode.inspector.InspectorAnalysisTest</mainClass><classpathScope>test</classpathScope><skip>${skipTests}</skip></configuration>
-                    </execution>
-                    <execution>
-                        <id>fmcomms2-source-tests</id><phase>test</phase><goals><goal>java</goal></goals>
-                        <configuration><mainClass>eu.dariolucia.jsatdecode.source.fmcomms2.Fmcomms2SourceTest</mainClass><classpathScope>test</classpathScope><skip>${skipTests}</skip></configuration>
                     </execution>
                     <execution>
                         <id>phase-one-contract-tests</id>

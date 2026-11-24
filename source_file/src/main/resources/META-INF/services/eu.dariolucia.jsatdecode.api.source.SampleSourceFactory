@@ -1,4 +1,3 @@
 eu.dariolucia.jsatdecode.source.cf32.Cf32SourceFactory
 eu.dariolucia.jsatdecode.source.cs16.Cs16SourceFactory
 eu.dariolucia.jsatdecode.source.wav.WavSourceFactory
-eu.dariolucia.jsatdecode.source.fmcomms2.Fmcomms2SourceFactory

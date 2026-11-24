@@ -1,7 +1,8 @@
 # JSatDecode stand-alone distribution
 
-This package contains JSatDecoder, JSatInspector, `api`, `core`, `decoder_base`, the
-Elektro-L GGAK and Hinode decoders and every runtime dependency. No Maven installation is needed
+This package contains JSatDecoder, JSatInspector, `api`, `core`, the file and
+FMComms2 sources, `decoder_base`, the Elektro-L GGAK and Hinode decoders and
+every runtime dependency. No Maven installation is needed
 to run it. Install Java 25 or later with the `java.desktop` and `java.xml`
 modules; these are required by the modular runtime even for headless decoding.
 The scripts use `JAVA_HOME` when set, otherwise
@@ -86,7 +87,7 @@ accepts `--help` / `-h` and otherwise starts without arguments.
 | --- | --- |
 | `bin/` | Windows `.bat` and Unix `.sh` launchers for each application |
 | `icons/` | `icon-jsatdecode.png` and `icon-jsatinspector.png` for application shortcuts |
-| `lib/` | API, core, shared decoder library, every mission decoder and all runtime JARs |
+| `lib/` | API, core, both source providers, shared decoder library, every mission decoder and all runtime JARs |
 | `examples/<module>/` | Example configurations from core and each mission |
 | `docs/` | Framework and mission documentation |
 
@@ -104,7 +105,7 @@ The mission modules are Elektro-L GGAK and Hinode. The launchers use
 loaded through the Java module system without an application classpath.
 The application, shared library and mission JARs are explicit modules containing
 `module-info.class`. The core module is `eu.dariolucia.jsatdecode.core`; its
-service declarations make matching decoder provider modules available through
+service declarations make matching source and decoder provider modules available through
 standard service binding, without `--add-modules ALL-MODULE-PATH`. Third-party
 dependencies retain their own metadata, including automatic modules. The
 ordinary core artifact is used directly; no separate modular classifier is

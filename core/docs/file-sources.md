@@ -1,6 +1,8 @@
 # WAV, CF32 and CS16 file sources
 
 File sources provide deterministic local acquisition through the SampleSource contract.
+They are packaged in the `jsatdecode-source-file` module, whose only JSatDecode
+dependency is `jsatdecode-api`.
 All code is Java SE, with no external codec, DSP, UI or native dependency.
 Factories are Cf32SourceFactory (ID cf32), Cs16SourceFactory (ID cs16) and WavSourceFactory (ID wav).
 All are discoverable using ServiceLoader<SampleSourceFactory> and selectable through the runtime and CLI.

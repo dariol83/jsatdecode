@@ -34,7 +34,7 @@ import java.util.concurrent.TimeUnit;
  * Stop/close interrupt pacing or file reads and join the worker; sink code must
  * cooperate with interruption. No channel is retained before start or after completion.
  */
-public abstract class AbstractFileSampleSource implements SampleSource {
+public abstract class AbstractFileSampleSource implements ManagedSampleSource {
     private final Object lifecycle = new Object();
     private final SourceDescriptor descriptor;
     private final FileSourceSettings settings;

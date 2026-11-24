@@ -23,9 +23,11 @@ public final class DistributionTest {
     private static final String CORE_MODULE = "eu.dariolucia.jsatdecode.core";
     private static final String API_MODULE = "eu.dariolucia.jsatdecode.api";
     private static final String DECODER_BASE_MODULE = "eu.dariolucia.jsatdecode.decoder.base";
+    private static final String FILE_SOURCE_MODULE = "eu.dariolucia.jsatdecode.source.file";
+    private static final String RADIO_SOURCE_MODULE = "eu.dariolucia.jsatdecode.source.fmcomms2";
     private static final Set<String> APPLICATION_MODULES = Set.of(API_MODULE, CORE_MODULE,
             DECODER_BASE_MODULE, "eu.dariolucia.jsatdecode.decoder.elektrol.ggak",
-            "eu.dariolucia.jsatdecode.decoder.hinode");
+            "eu.dariolucia.jsatdecode.decoder.hinode", FILE_SOURCE_MODULE, RADIO_SOURCE_MODULE);
     private static final Set<String> DECODERS = Set.of("dummy", "elektrol_ggak", "hinode_s_tlm");
 
     private DistributionTest() { }
@@ -43,7 +45,8 @@ public final class DistributionTest {
         try (var entries = Files.list(lib)) {
             jars = entries.map(path -> path.getFileName().toString()).collect(Collectors.toSet());
         }
-        for (String artifact : List.of("jsatdecode-api", "jsatdecode-core", "decoder-base", "decoder-elektrol-ggak", "decoder-hinode",
+        for (String artifact : List.of("jsatdecode-api", "jsatdecode-core", "jsatdecode-source-file",
+                "jsatdecode-source-fmcomms2", "decoder-base", "decoder-elektrol-ggak", "decoder-hinode",
                 "jeromq", "jradio", "JTransforms",
                 "JLargeArrays", "commons-math3", "ascii85", "jnacl", "metrics-core", "slf4j-api", "ssdv4j")) {
             check(jars.stream().anyMatch(name -> name.startsWith(artifact + "-") && name.endsWith(".jar")),
@@ -63,6 +66,7 @@ public final class DistributionTest {
                 "--module-path", lib.toString(), "--add-modules", CORE_MODULE, "--validate-modules"), working, false);
         check(modules.exitCode() == 0, "Distribution module graph is invalid:\n" + modules.output());
         smokeIndependentConsumers(lib, working);
+        smokeIndependentSources(lib, working);
         smokeNamedConsumer(lib, working);
 
         // Both a quoted config path and its relative input path must survive the scripts.
@@ -99,11 +103,13 @@ public final class DistributionTest {
                 "API must depend only on java.base");
         checkProjectRequirements(finder, CORE_MODULE, Set.of(API_MODULE));
         checkProjectRequirements(finder, DECODER_BASE_MODULE, Set.of(API_MODULE));
+        checkProjectRequirements(finder, FILE_SOURCE_MODULE, Set.of(API_MODULE));
+        checkProjectRequirements(finder, RADIO_SOURCE_MODULE, Set.of(API_MODULE));
         for (String decoder : List.of("eu.dariolucia.jsatdecode.decoder.elektrol.ggak",
                 "eu.dariolucia.jsatdecode.decoder.hinode")) {
             checkProjectRequirements(finder, decoder, Set.of(API_MODULE, DECODER_BASE_MODULE));
         }
-        // Starting only core must bring mission providers into the graph through uses/provides.
+        // Starting only core must bring mission and source providers into the graph through uses/provides.
         var configuration = ModuleLayer.boot().configuration().resolveAndBind(finder, ModuleFinder.of(), Set.of(CORE_MODULE));
         for (String name : APPLICATION_MODULES) {
             check(configuration.findModule(name).isPresent(), "Core service binding did not resolve " + name);
@@ -172,6 +178,126 @@ public final class DistributionTest {
                     && path.getFileName().toString().endsWith(".jar")).toList();
             check(matches.size() == 1, "Expected one packaged " + artifact + " JAR");
             return matches.getFirst();
+        }
+    }
+
+    private static void smokeIndependentSources(Path lib, Path working) throws Exception {
+        Path api = artifact(lib, "jsatdecode-api");
+        Path source = Files.createDirectories(working.resolve("source consumer source"));
+        Path classes = Files.createDirectories(working.resolve("source consumer classes"));
+        Path descriptor = source.resolve("module-info.java");
+        Path application = source.resolve("SourceConsumer.java");
+        Files.writeString(descriptor, """
+                module jsatdecode.sourceconsumer {
+                    requires eu.dariolucia.jsatdecode.api;
+                    uses eu.dariolucia.jsatdecode.api.source.SampleSourceFactory;
+                }
+                """, StandardCharsets.UTF_8);
+        Files.writeString(application, """
+                package consumer;
+                import eu.dariolucia.jsatdecode.api.config.Configuration;
+                import eu.dariolucia.jsatdecode.api.lifecycle.ComponentState;
+                import eu.dariolucia.jsatdecode.api.source.*;
+                import java.nio.ByteBuffer;
+                import java.nio.ByteOrder;
+                import java.nio.charset.StandardCharsets;
+                import java.nio.file.Files;
+                import java.nio.file.Path;
+                import java.util.Map;
+                import java.util.ServiceLoader;
+                import java.util.Set;
+                import java.util.concurrent.atomic.AtomicInteger;
+                import java.util.stream.Collectors;
+
+                public final class SourceConsumer {
+                    public static void main(String[] args) throws Exception {
+                        boolean file = args[0].equals("file"), named = args[1].equals("named");
+                        String module = "eu.dariolucia.jsatdecode.source." + (file ? "file" : "fmcomms2");
+                        var factories = ServiceLoader.load(SampleSourceFactory.class).stream().map(ServiceLoader.Provider::get)
+                                .collect(Collectors.toMap(f -> f.descriptor().id(), f -> f));
+                        check(factories.keySet().equals(file ? Set.of("wav", "cf32", "cs16") : Set.of("fmcomms2")),
+                                "Unexpected independently discovered sources: " + factories.keySet());
+                        if (named) {
+                            Set<String> modules = ModuleLayer.boot().modules().stream().map(Module::getName)
+                                    .filter(n -> n.startsWith("eu.dariolucia.jsatdecode.")).collect(Collectors.toSet());
+                            check(modules.equals(Set.of("eu.dariolucia.jsatdecode.api", module)), "Unexpected modules: " + modules);
+                            for (var factory : factories.values())
+                                check(factory.getClass().getModule().getName().equals(module), "Wrong provider module");
+                        } else {
+                            for (var factory : factories.values())
+                                check(!factory.getClass().getModule().isNamed(), "Expected classpath provider");
+                        }
+                        if (file) for (String id : Set.of("wav", "cf32", "cs16")) replay(factories.get(id), id);
+                        else {
+                            var factory = factories.get("fmcomms2");
+                            try (var receiver = factory.create(new Configuration(Map.of()))) {
+                                check(receiver instanceof ManagedSampleSource, "Missing managed source capability");
+                            }
+                            check(factory instanceof DiagnosticSampleSourceFactory, "Missing diagnostic factory capability");
+                            var capture = ((DiagnosticSampleSourceFactory) factory).createDiagnostic(
+                                    new Configuration(Map.of()), 2, (utc, elapsed, count) -> {});
+                            try (var receiver = capture.source()) {
+                                check(capture.diagnostics().capacity() == 2 && capture.diagnostics().capturedReadCount() == 0,
+                                        "Invalid diagnostic log");
+                            }
+                        }
+                        System.out.println("Independent " + args[0] + " sources passed on " + args[1]);
+                    }
+
+                    private static void replay(SampleSourceFactory factory, String id) throws Exception {
+                        ByteBuffer data = ByteBuffer.allocate(id.equals("wav") ? 52 : id.equals("cs16") ? 4 : 8)
+                                .order(ByteOrder.LITTLE_ENDIAN);
+                        if (id.equals("wav")) {
+                            data.put("RIFF".getBytes(StandardCharsets.US_ASCII)).putInt(44)
+                                    .put("WAVEfmt ".getBytes(StandardCharsets.US_ASCII)).putInt(16)
+                                    .putShort((short) 3).putShort((short) 2).putInt(1000).putInt(8000)
+                                    .putShort((short) 8).putShort((short) 32)
+                                    .put("data".getBytes(StandardCharsets.US_ASCII)).putInt(8);
+                        }
+                        if (id.equals("cs16")) data.putShort((short) 8192).putShort((short) -16384);
+                        else data.putFloat(0.25f).putFloat(-0.5f);
+                        Path input = Path.of("isolated-source." + id);
+                        Files.write(input, data.array());
+                        var configuration = new Configuration(Map.of("file", input.toString(), "sample_rate", 1000, "block_samples", 1));
+                        var source = (ManagedSampleSource) factory.create(configuration);
+                        AtomicInteger samples = new AtomicInteger();
+                        try (source) {
+                            source.setSampleSink(block -> {
+                                check(block.complexSamples() == 1 && block.sampleIndex() == 0 && block.sampleRate() == 1000
+                                                && block.i(0) == 0.25f && block.q(0) == -0.5f,
+                                        "Incorrect " + id + " sample");
+                                samples.incrementAndGet();
+                            });
+                            source.start();
+                            long deadline = System.nanoTime() + 5_000_000_000L;
+                            while (source.state() != ComponentState.STOPPED && source.state() != ComponentState.FAILED
+                                    && System.nanoTime() < deadline) Thread.sleep(1);
+                            check(source.state() == ComponentState.STOPPED && source.failure().isEmpty() && samples.get() == 1
+                                            && Boolean.TRUE.equals(source.monitoringSnapshot().values().get("source.eof")),
+                                    id + " did not reach EOF with one sample: " + source.failure());
+                        }
+                    }
+
+                    private static void check(boolean condition, String message) {
+                        if (!condition) throw new AssertionError(message);
+                    }
+                }
+                """, StandardCharsets.UTF_8);
+        Result compilation = run(List.of(javaTool("javac"), "--module-path", api.toString(),
+                "-d", classes.toString(), descriptor.toString(), application.toString()), working, false);
+        check(compilation.exitCode() == 0, "Independent source consumer did not compile:\n" + compilation.output());
+        for (boolean file : List.of(true, false)) {
+            String label = file ? "file" : "fmcomms2";
+            Path provider = artifact(lib, file ? "jsatdecode-source-file" : "jsatdecode-source-fmcomms2");
+            String path = api + java.io.File.pathSeparator + provider + java.io.File.pathSeparator + classes;
+            Result named = run(List.of(javaTool("java"), "--module-path", path, "--module",
+                    "jsatdecode.sourceconsumer/consumer.SourceConsumer", label, "named"), working, false);
+            check(named.exitCode() == 0 && named.output().contains("sources passed"),
+                    "Independent named " + label + " source failed:\n" + named.output());
+            Result classpath = run(List.of(javaTool("java"), "--class-path", path,
+                    "consumer.SourceConsumer", label, "classpath"), working, false);
+            check(classpath.exitCode() == 0 && classpath.output().contains("sources passed"),
+                    "Independent classpath " + label + " source failed:\n" + classpath.output());
         }
     }
 

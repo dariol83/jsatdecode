@@ -34,7 +34,7 @@ import java.util.concurrent.TimeUnit;
  * float32 in the range [-1.0, 1.0]. File format matches SatDump and SDR++ CS16 format:
  * headerless, little-endian, 4 bytes per complex sample.
  */
-public final class Cs16SampleSource implements SampleSource {
+public final class Cs16SampleSource implements ManagedSampleSource {
     private static final float SCALE = 1.0f / 32768.0f;
     private final Object lifecycle = new Object();
     private final SourceDescriptor descriptor;

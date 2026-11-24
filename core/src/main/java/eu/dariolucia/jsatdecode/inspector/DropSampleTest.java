@@ -1,8 +1,8 @@
 package eu.dariolucia.jsatdecode.inspector;
 
 import eu.dariolucia.jsatdecode.api.config.Configuration;
-import eu.dariolucia.jsatdecode.source.fmcomms2.Fmcomms2SampleSource;
-import eu.dariolucia.jsatdecode.source.fmcomms2.ReadDiagnostics;
+import eu.dariolucia.jsatdecode.api.source.ManagedSampleSource;
+import eu.dariolucia.jsatdecode.api.source.SourceReadDiagnostics;
 
 import java.io.PrintWriter;
 import java.time.Instant;
@@ -37,11 +37,11 @@ final class DropSampleTest {
         void requestStop();
         Throwable failure();
         long reportedOverruns();
-        ReadDiagnostics diagnostics();
+        SourceReadDiagnostics diagnostics();
         @Override void close();
     }
     interface SourceFactory {
-        ReadSource create(Configuration configuration, int logCapacity, ReadDiagnostics.ReadListener listener);
+        ReadSource create(Configuration configuration, int logCapacity, SourceReadDiagnostics.ReadListener listener);
     }
     private static final class CompletionClock {
         volatile long hostNanos;
@@ -245,9 +245,10 @@ final class DropSampleTest {
         return new Configuration(values);
     }
 
-    private static ReadSource radio(Configuration configuration, int capacity, ReadDiagnostics.ReadListener listener) {
-        ReadDiagnostics log = new ReadDiagnostics(capacity, listener);
-        Fmcomms2SampleSource source = new Fmcomms2SampleSource(configuration, log);
+    private static ReadSource radio(Configuration configuration, int capacity, SourceReadDiagnostics.ReadListener listener) {
+        var capture = InspectorSources.diagnostic(configuration, capacity, listener);
+        SourceReadDiagnostics log = capture.diagnostics();
+        ManagedSampleSource source = capture.source();
         source.setSampleSink(ignored -> { throw new IllegalStateException("Diagnostic run delivered IQ samples"); });
         return new ReadSource() {
             @Override public void start() { source.start(); }
@@ -258,11 +259,11 @@ final class DropSampleTest {
                 Object value = source.monitoringSnapshot().values().get("source.reported_overruns");
                 return value instanceof Number number ? number.longValue() : 0;
             }
-            @Override public ReadDiagnostics diagnostics() { return log; }
+            @Override public SourceReadDiagnostics diagnostics() { return log; }
         };
     }
 
-    private void logReads(DropSampleResult result, DropSampleMeasurement m, ReadDiagnostics log) {
+    private void logReads(DropSampleResult result, DropSampleMeasurement m, SourceReadDiagnostics log) {
         console.println("Drop samples run " + result.runId() + ": " + result.status() + ": " + result.detail());
         console.println("read,completion_utc,elapsed_ns,samples,gap_ms,cumulative_samples,window_expected_samples,window_arrived_samples,window_deficit_samples");
         long cumulative = 0, window = 0, previous = 0;

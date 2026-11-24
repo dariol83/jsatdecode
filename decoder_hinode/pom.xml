@@ -45,6 +45,18 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId>
+            <artifactId>jsatdecode-source-file</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId>
+            <artifactId>jsatdecode-source-fmcomms2</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>ru.r2cloud</groupId>
             <artifactId>jradio</artifactId>
             <version>1.121</version>

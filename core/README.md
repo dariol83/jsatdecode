@@ -1,6 +1,6 @@
 # JSatDecode core
 
-The Java 25 core module provides sample sources, runtime management, monitoring,
+The Java 25 core module provides runtime management, monitoring,
 the optional Swing decoder window and [JSatInspector](docs/jsatinspector.md).
 Public contracts and reusable spectrum utilities are in the independent
 [API module](../api/README.md), which core re-exports. Java packages use
@@ -12,6 +12,8 @@ Public contracts and reusable spectrum utilities are in the independent
 File acquisition supports WAV, CF32 and CS16 recordings with sample ranges,
 repeat and optional real-time pacing. The `fmcomms2` source acquires normalized
 IQ from a PlutoPlus/FMComms2 IIOD TCP server using Java sockets and XML parsing.
+These providers are in the independent `source_file` and `source_fmcomms2`
+modules, discovered through the source factory service.
 It supports RF configuration, receiver selection and native FPGA decimation
 where exposed by the device. See [file sources](docs/file-sources.md) and
 [FMComms2 source](docs/fmcomms2-source.md).
@@ -70,9 +72,10 @@ main entry point; its dependencies are separate JARs. See
 [Java modules](docs/java-modules.md) for module-path commands, exported packages
 and service declarations.
 
-Maven's Exec plugin runs self-contained API tests for observability and FFTs and
-core tests for API integration, file sources, IIOD acquisition/recording,
-runtime, verbose logging, the ZMQ client, Swing monitoring and Inspector. Failed
+Maven's Exec plugin runs self-contained API and core test harnesses. The full
+reactor also runs source integration tests for IIOD acquisition and recording.
+These cover file sources, runtime, verbose logging, the ZMQ client, Swing
+monitoring and Inspector. Failed
 checks fail the build without requiring `-ea`; Surefire runs the JUnit tests
 separately. Desktop and external-recording checks are opt-in; see the
 [implementation guide](docs/implementation-guide.md) and the relevant module docs.

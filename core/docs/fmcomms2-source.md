@@ -315,12 +315,11 @@ must inspect device behavior and sustained decoder throughput.
 
 ## Validation and build
 
-The implementation requires only Java SE **java.base + java.xml**; Swing remains
-optional. Full builds include java.xml for context parsing. Existing core/file
-CLI paths continue to run with java.base only; FMComms2 XML is loaded only when
-this source starts. No Maven runtime dependency is added.
+The `jsatdecode-source-fmcomms2` module depends only on `jsatdecode-api` among
+JSatDecode modules and uses Java SE **java.base + java.xml**. It has no
+third-party runtime dependencies. XML parsing occurs when the source starts.
 
-Maven verify runs Fmcomms2SourceTest, an independent TCP daemon
+The full reactor runs Fmcomms2SourceTest from `integration_tests`, using an independent TCP daemon
 fixture. Checks cover settings/registration, actual commands/write bytes,
 channel sorting and multiword masks, RX1/RX2, endian/shift/sign conversion,
 fragmented/chunked/short responses, immutable blocks/UTC, FIR upload, readback
