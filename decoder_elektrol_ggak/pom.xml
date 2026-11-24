@@ -30,6 +30,11 @@
     <dependencies>
         <dependency>
             <groupId>eu.dariolucia.jsatdecode</groupId>
+            <artifactId>jsatdecode-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId>
             <artifactId>decoder-base</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -37,6 +42,7 @@
             <groupId>eu.dariolucia.jsatdecode</groupId>
             <artifactId>jsatdecode-core</artifactId>
             <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>ru.r2cloud</groupId>
@@ -50,6 +56,19 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.14.1</version>
+                <executions>
+                    <execution>
+                        <id>default-testCompile</id>
+                        <configuration>
+                            <!-- Qualification tests exercise the runtime and optional desktop. -->
+                            <compilerArgs>
+                                <arg>--add-modules</arg><arg>java.desktop</arg>
+                                <arg>--add-reads</arg><arg>eu.dariolucia.jsatdecode.decoder.elektrol.ggak=ALL-UNNAMED</arg>
+                                <arg>--add-reads</arg><arg>eu.dariolucia.jsatdecode.decoder.elektrol.ggak=java.desktop</arg>
+                            </compilerArgs>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -68,7 +87,8 @@
                             <goal>copy-dependencies</goal>
                         </goals>
                         <configuration>
-                            <includeScope>runtime</includeScope>
+                            <!-- Keep the existing runtime/qualification launch classpath. -->
+                            <includeScope>test</includeScope>
                             <outputDirectory>${project.build.directory}/lib</outputDirectory>
                         </configuration>
                     </execution>

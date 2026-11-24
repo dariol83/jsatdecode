@@ -208,7 +208,7 @@ or mission-specific protocol transport code.
 
 ## Shared decoder implementation support
 
-The independent `decoder_base` module depends on core and jradio 1.121; core never
+The independent `decoder_base` module depends on API and jradio 1.121; core never
 depends on a mission or on this support library. It implements shared DC adaptation,
 minimal one-shot lifecycle bookkeeping, configuration helpers, exact string constants,
 mandatory metric metadata and polling-only snapshot construction. Each mission

@@ -1,6 +1,6 @@
 # JSatDecode stand-alone distribution
 
-This package contains JSatDecoder, JSatInspector, `core`, `decoder_base`, the
+This package contains JSatDecoder, JSatInspector, `api`, `core`, `decoder_base`, the
 Elektro-L GGAK and Hinode decoders and every runtime dependency. No Maven installation is needed
 to run it. Install Java 25 or later with the `java.desktop` and `java.xml`
 modules; these are required by the modular runtime even for headless decoding.
@@ -86,7 +86,7 @@ accepts `--help` / `-h` and otherwise starts without arguments.
 | --- | --- |
 | `bin/` | Windows `.bat` and Unix `.sh` launchers for each application |
 | `icons/` | `icon-jsatdecode.png` and `icon-jsatinspector.png` for application shortcuts |
-| `lib/` | Core, shared decoder library, every mission decoder and all runtime JARs |
+| `lib/` | API, core, shared decoder library, every mission decoder and all runtime JARs |
 | `examples/<module>/` | Example configurations from core and each mission |
 | `docs/` | Framework and mission documentation |
 

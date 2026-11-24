@@ -1,7 +1,7 @@
 # JSatDecode implementation specification
 
 This document describes the framework implemented in this repository. The Java
-interfaces in `core/src/main/java/eu/dariolucia/jsatdecode/api` define its public
+interfaces in `api/src/main/java/eu/dariolucia/jsatdecode/api` define its public
 contracts. Configuration details and application behavior are documented in the
 linked component guides.
 
@@ -11,20 +11,22 @@ The Maven reactor contains these modules:
 
 | Module | Responsibility |
 | --- | --- |
-| `core` | Public API, configuration, runtime, sources, outputs, monitoring, FFT, Swing observer and JSatInspector |
+| `api` | Public contracts and reusable FFT, monitoring, tap and time utilities |
+| `core` | Configuration, runtime, sources, outputs, monitoring, Swing observer and JSatInspector |
 | `decoder_base` | Shared decoder lifecycle, monitoring, configuration and DSP adapters |
 | `decoder_elektrol_ggak` | Elektro-L GGAK decoder |
 | `decoder_hinode` | Hinode decoder |
 | `distribution` | Standalone application archive and launch scripts |
 
 Java 25 is the compilation baseline. Public API signatures use Java SE and other
-framework API types. Core uses JeroMQ internally for ZMQ transport. The shared
-decoder library depends on core and jradio 1.121; mission modules depend on the
-shared library. Core has no dependency on mission modules or jradio.
+framework API types; the API has no external dependencies. Core uses JeroMQ
+internally for ZMQ transport. The shared decoder library depends on API and
+jradio 1.121; mission modules depend on API and the shared library. Core has no
+dependency on mission modules or jradio.
 
-The four Java JARs contain explicit JPMS descriptors. Core packages the
+The five Java JARs contain explicit JPMS descriptors. Core packages the
 `MainLauncher` entry point in `eu.dariolucia.jsatdecode.core`. The standalone
-distribution includes the same core JAR, shared decoder support, the two mission
+distribution includes the API and core JARs, shared decoder support, the two mission
 modules and their runtime dependencies. The distribution launchers use the Java
 module path and discover factories through descriptor `uses`/`provides`
 declarations. Service-provider resources also retain classpath compatibility.
@@ -389,10 +391,10 @@ Build the repository with Java 25 or later:
 mvn verify
 ```
 
-`mvn -pl core verify` builds and checks the independent framework. The reactor
+`mvn -pl core -am verify` builds and checks the API and framework. The reactor
 also runs shared-library and mission tests, packages the standalone distribution,
 and validates its content/launchers. Maven invokes the repository's Java test
-entry points; core's tests cover API contracts, observations, FFT, file sources,
+entry points; API and core tests cover contracts, observations, FFT, file sources,
 runtime ownership, Inspector behavior, the IIOD adapter and ZMQ clients. Desktop,
 live-hardware and recording-driven tools require their stated environment or
 input fixtures. Component guides and test entry points document those

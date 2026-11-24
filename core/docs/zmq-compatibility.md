@@ -187,7 +187,7 @@ diagnostics remain accessible through failure(), including after CLOSED.
 
 ## Verification and packaging
 
-Run `mvn -pl core verify` from the repository root. `ZmqClientTest` covers
+Run `mvn -pl core -am verify` from the repository root. `ZmqClientTest` covers
 wire decoding and real TCP publication/subscription using the Java client in
 `distribution.zmq.client`; runtime tests cover output lifecycle and bounded
 mailboxes. Maven copies resolved runtime/test JARs into

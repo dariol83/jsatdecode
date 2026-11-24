@@ -3,7 +3,7 @@
  * JSatDecode decoders.
  */
 module eu.dariolucia.jsatdecode.decoder.base {
-    requires transitive eu.dariolucia.jsatdecode.core;
+    requires transitive eu.dariolucia.jsatdecode.api;
     requires jradio;
 
     exports eu.dariolucia.jsatdecode.decoder.base;

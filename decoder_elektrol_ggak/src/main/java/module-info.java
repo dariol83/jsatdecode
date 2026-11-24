@@ -2,7 +2,7 @@
  * Elektro-L GGAK telemetry decoder and its discoverable decoder factory.
  */
 module eu.dariolucia.jsatdecode.decoder.elektrol.ggak {
-    requires transitive eu.dariolucia.jsatdecode.core;
+    requires transitive eu.dariolucia.jsatdecode.api;
     requires transitive eu.dariolucia.jsatdecode.decoder.base;
     requires jradio;
 

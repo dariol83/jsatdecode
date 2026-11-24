@@ -3,21 +3,12 @@
  * Factory providers are discovered through the Java service loader.
  */
 module eu.dariolucia.jsatdecode.core {
+    requires transitive eu.dariolucia.jsatdecode.api;
     requires transitive java.desktop;
     requires java.xml;
     requires org.zeromq.jeromq;
 
-    exports eu.dariolucia.jsatdecode.api.config;
-    exports eu.dariolucia.jsatdecode.api.decoder;
-    exports eu.dariolucia.jsatdecode.api.distribution;
-    exports eu.dariolucia.jsatdecode.api.frame;
-    exports eu.dariolucia.jsatdecode.api.lifecycle;
-    exports eu.dariolucia.jsatdecode.api.monitoring;
-    exports eu.dariolucia.jsatdecode.api.source;
-    exports eu.dariolucia.jsatdecode.api.taps;
-    exports eu.dariolucia.jsatdecode.core.buffers;
     exports eu.dariolucia.jsatdecode.core.config;
-    exports eu.dariolucia.jsatdecode.core.monitoring;
     exports eu.dariolucia.jsatdecode.core.registry;
     exports eu.dariolucia.jsatdecode.core.runtime;
     exports eu.dariolucia.jsatdecode.distribution.tcp;
@@ -26,14 +17,12 @@ module eu.dariolucia.jsatdecode.core {
     exports eu.dariolucia.jsatdecode.distribution.tcp.server;
     exports eu.dariolucia.jsatdecode.distribution.zmq;
     exports eu.dariolucia.jsatdecode.distribution.zmq.client;
-    exports eu.dariolucia.jsatdecode.dsp.fft;
     exports eu.dariolucia.jsatdecode.source.cf32;
     exports eu.dariolucia.jsatdecode.source.cs16;
     exports eu.dariolucia.jsatdecode.source.file;
     exports eu.dariolucia.jsatdecode.source.fmcomms2;
     exports eu.dariolucia.jsatdecode.source.wav;
     exports eu.dariolucia.jsatdecode.ui.swing;
-    exports eu.dariolucia.jsatdecode.util;
 
     uses eu.dariolucia.jsatdecode.api.decoder.DecoderFactory;
     uses eu.dariolucia.jsatdecode.api.source.SampleSourceFactory;

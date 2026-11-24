@@ -1,8 +1,9 @@
 # JSatDecode core
 
-The Java 25 core module provides sample sources, decoder and distributor APIs,
-runtime management, monitoring, spectrum utilities, the optional Swing decoder
-window and [JSatInspector](docs/jsatinspector.md). Java packages use
+The Java 25 core module provides sample sources, runtime management, monitoring,
+the optional Swing decoder window and [JSatInspector](docs/jsatinspector.md).
+Public contracts and reusable spectrum utilities are in the independent
+[API module](../api/README.md), which core re-exports. Java packages use
 `eu.dariolucia.jsatdecode`. Its JPMS name is
 `eu.dariolucia.jsatdecode.core`; the main JAR contains `module-info.class`.
 
@@ -43,7 +44,7 @@ Use JDK 25 or later and Maven. From the repository root:
 
 ```text
 mvn verify
-mvn -pl core verify
+mvn -pl core -am verify
 ```
 
 The full reactor produces a [stand-alone distribution](../distribution/README.md)
@@ -69,11 +70,11 @@ main entry point; its dependencies are separate JARs. See
 [Java modules](docs/java-modules.md) for module-path commands, exported packages
 and service declarations.
 
-Maven's Exec plugin runs self-contained tests for APIs, observability, FFTs, file
-sources, IIOD acquisition/recording, runtime, verbose logging, the ZMQ client,
-Swing monitoring and Inspector. Failed checks fail the build without requiring
-`-ea`. Surefire's separate zero-test report is expected because these harnesses
-do not use JUnit. Desktop and external-recording checks are opt-in; see the
+Maven's Exec plugin runs self-contained API tests for observability and FFTs and
+core tests for API integration, file sources, IIOD acquisition/recording,
+runtime, verbose logging, the ZMQ client, Swing monitoring and Inspector. Failed
+checks fail the build without requiring `-ea`; Surefire runs the JUnit tests
+separately. Desktop and external-recording checks are opt-in; see the
 [implementation guide](docs/implementation-guide.md) and the relevant module docs.
 
 ## Documentation

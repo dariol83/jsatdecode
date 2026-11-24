@@ -17,7 +17,7 @@ To build and run the individual core JAR from the repository root with Java 25
 or newer:
 
 ```text
-mvn -pl core verify
+mvn -pl core -am verify
 java -jar core/target/jsatdecoder.jar --inspector
 ```
 
@@ -220,6 +220,6 @@ faults, concurrent stop/drain, maximum FFTs, averaging, cadence and Java2D rende
 synthetic spectra and stub actions without connecting to a radio.
 `InspectorApplicationDesktopTest` additionally verifies the actual launch/exit
 and preferences lifecycle in a child JVM with isolated home/AppData directories.
-Run `mvn -pl core verify` from the repository root for automated Inspector checks.
+Run `mvn -pl core -am verify` from the repository root for automated Inspector checks.
 Desktop test runners require a graphical desktop; live reception and storage
 measurements require a PlutoPlus and a suitable output device.

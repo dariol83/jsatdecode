@@ -38,7 +38,7 @@
     <dependencies>
         <dependency>
             <groupId>eu.dariolucia.jsatdecode</groupId>
-            <artifactId>jsatdecode-core</artifactId>
+            <artifactId>jsatdecode-api</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>

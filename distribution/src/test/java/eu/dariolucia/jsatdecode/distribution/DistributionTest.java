@@ -1,6 +1,7 @@
 package eu.dariolucia.jsatdecode.distribution;
 
 import java.io.IOException;
+import java.lang.module.ModuleDescriptor;
 import java.lang.module.ModuleFinder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -20,8 +21,10 @@ public final class DistributionTest {
     private static final boolean WINDOWS = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
     private static final Path JAVA_HOME = Path.of(System.getProperty("java.home"));
     private static final String CORE_MODULE = "eu.dariolucia.jsatdecode.core";
-    private static final Set<String> APPLICATION_MODULES = Set.of(CORE_MODULE,
-            "eu.dariolucia.jsatdecode.decoder.base", "eu.dariolucia.jsatdecode.decoder.elektrol.ggak",
+    private static final String API_MODULE = "eu.dariolucia.jsatdecode.api";
+    private static final String DECODER_BASE_MODULE = "eu.dariolucia.jsatdecode.decoder.base";
+    private static final Set<String> APPLICATION_MODULES = Set.of(API_MODULE, CORE_MODULE,
+            DECODER_BASE_MODULE, "eu.dariolucia.jsatdecode.decoder.elektrol.ggak",
             "eu.dariolucia.jsatdecode.decoder.hinode");
     private static final Set<String> DECODERS = Set.of("dummy", "elektrol_ggak", "hinode_s_tlm");
 
@@ -40,7 +43,7 @@ public final class DistributionTest {
         try (var entries = Files.list(lib)) {
             jars = entries.map(path -> path.getFileName().toString()).collect(Collectors.toSet());
         }
-        for (String artifact : List.of("jsatdecode-core", "decoder-base", "decoder-elektrol-ggak", "decoder-hinode",
+        for (String artifact : List.of("jsatdecode-api", "jsatdecode-core", "decoder-base", "decoder-elektrol-ggak", "decoder-hinode",
                 "jeromq", "jradio", "JTransforms",
                 "JLargeArrays", "commons-math3", "ascii85", "jnacl", "metrics-core", "slf4j-api", "ssdv4j")) {
             check(jars.stream().anyMatch(name -> name.startsWith(artifact + "-") && name.endsWith(".jar")),
@@ -59,6 +62,7 @@ public final class DistributionTest {
         Result modules = run(List.of(javaTool("java"),
                 "--module-path", lib.toString(), "--add-modules", CORE_MODULE, "--validate-modules"), working, false);
         check(modules.exitCode() == 0, "Distribution module graph is invalid:\n" + modules.output());
+        smokeIndependentConsumers(lib, working);
         smokeNamedConsumer(lib, working);
 
         // Both a quoted config path and its relative input path must survive the scripts.
@@ -90,10 +94,84 @@ public final class DistributionTest {
             var reference = finder.find(name).orElseThrow(() -> new AssertionError("Missing application module " + name));
             check(!reference.descriptor().isAutomatic(), "Application module must have module-info.class: " + name);
         }
+        var api = finder.find(API_MODULE).orElseThrow().descriptor();
+        check(api.requires().size() == 1 && api.requires().iterator().next().name().equals("java.base"),
+                "API must depend only on java.base");
+        checkProjectRequirements(finder, CORE_MODULE, Set.of(API_MODULE));
+        checkProjectRequirements(finder, DECODER_BASE_MODULE, Set.of(API_MODULE));
+        for (String decoder : List.of("eu.dariolucia.jsatdecode.decoder.elektrol.ggak",
+                "eu.dariolucia.jsatdecode.decoder.hinode")) {
+            checkProjectRequirements(finder, decoder, Set.of(API_MODULE, DECODER_BASE_MODULE));
+        }
         // Starting only core must bring mission providers into the graph through uses/provides.
         var configuration = ModuleLayer.boot().configuration().resolveAndBind(finder, ModuleFinder.of(), Set.of(CORE_MODULE));
         for (String name : APPLICATION_MODULES) {
             check(configuration.findModule(name).isPresent(), "Core service binding did not resolve " + name);
+        }
+    }
+
+    private static void checkProjectRequirements(ModuleFinder finder, String module, Set<String> expected) {
+        var descriptor = finder.find(module).orElseThrow().descriptor();
+        Set<String> actual = descriptor.requires().stream().map(ModuleDescriptor.Requires::name)
+                .filter(name -> name.startsWith("eu.dariolucia.jsatdecode."))
+                .collect(Collectors.toSet());
+        check(actual.equals(expected), module + " has unexpected JSatDecode dependencies: " + actual);
+        for (String dependency : expected) {
+            check(descriptor.requires().stream().anyMatch(required -> required.name().equals(dependency)
+                            && required.modifiers().contains(ModuleDescriptor.Requires.Modifier.TRANSITIVE)),
+                    module + " must expose " + dependency + " transitively");
+        }
+    }
+
+    private static void smokeIndependentConsumers(Path lib, Path working) throws Exception {
+        Path api = artifact(lib, "jsatdecode-api");
+        Path base = artifact(lib, "decoder-base");
+        Path jradio = artifact(lib, "jradio");
+        for (boolean withBase : List.of(false, true)) {
+            String label = withBase ? "base" : "api";
+            String moduleName = "jsatdecode.consumer." + label;
+            Path source = Files.createDirectories(working.resolve(label + " consumer source"));
+            Path classes = Files.createDirectories(working.resolve(label + " consumer classes"));
+            Path descriptor = source.resolve("module-info.java");
+            Path application = source.resolve("IndependentConsumer.java");
+            Files.writeString(descriptor, "module " + moduleName + " { requires "
+                    + (withBase ? "eu.dariolucia.jsatdecode.decoder.base" : API_MODULE) + "; }", StandardCharsets.UTF_8);
+            Files.writeString(application, """
+                    package consumer;
+                    import eu.dariolucia.jsatdecode.api.config.Configuration;
+                    import eu.dariolucia.jsatdecode.core.buffers.ComplexFloatRingBuffer;
+                    import eu.dariolucia.jsatdecode.dsp.fft.ComplexFft;
+                    import java.util.Map;
+                    public final class IndependentConsumer {
+                        public static void main(String[] args) {
+                            if (new Configuration(Map.of("sample_rate", 1000)).getInt("sample_rate") != 1000)
+                                throw new AssertionError("API configuration unavailable");
+                            if (new ComplexFft(8).size() != 8 || new ComplexFloatRingBuffer(2, 1000).capacitySamples() != 2)
+                                throw new AssertionError("Reusable utilities unavailable");
+                            if (ModuleLayer.boot().findModule("eu.dariolucia.jsatdecode.core").isPresent())
+                                throw new AssertionError("Independent consumer resolved core");
+                            System.out.println("Independent consumer passed");
+                        }
+                    }
+                    """, StandardCharsets.UTF_8);
+            String modulePath = api.toString();
+            if (withBase) modulePath += java.io.File.pathSeparator + base + java.io.File.pathSeparator + jradio;
+            Result compilation = run(List.of(javaTool("javac"), "--module-path", modulePath,
+                    "-d", classes.toString(), descriptor.toString(), application.toString()), working, false);
+            check(compilation.exitCode() == 0, label + " independent consumer did not compile:\n" + compilation.output());
+            Result execution = run(List.of(javaTool("java"), "--module-path", modulePath + java.io.File.pathSeparator + classes,
+                    "--module", moduleName + "/consumer.IndependentConsumer"), working, false);
+            check(execution.exitCode() == 0 && execution.output().contains("Independent consumer passed"),
+                    label + " independent consumer failed:\n" + execution.output());
+        }
+    }
+
+    private static Path artifact(Path lib, String artifact) throws IOException {
+        try (var entries = Files.list(lib)) {
+            List<Path> matches = entries.filter(path -> path.getFileName().toString().startsWith(artifact + "-")
+                    && path.getFileName().toString().endsWith(".jar")).toList();
+            check(matches.size() == 1, "Expected one packaged " + artifact + " JAR");
+            return matches.getFirst();
         }
     }
 
@@ -102,10 +180,11 @@ public final class DistributionTest {
         Path classes = Files.createDirectories(working.resolve("consumer classes"));
         Path descriptor = source.resolve("module-info.java");
         Path application = source.resolve("ModuleConsumer.java");
-        // Core API access must work through decoder.base's transitive requirement.
+        // The registry is a runtime service in core; decoder contracts are in api.
         Files.writeString(descriptor, """
                 module jsatdecode.consumer {
                     requires eu.dariolucia.jsatdecode.decoder.base;
+                    requires eu.dariolucia.jsatdecode.core;
                 }
                 """, StandardCharsets.UTF_8);
         Files.writeString(application, """

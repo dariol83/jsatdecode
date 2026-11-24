@@ -8,34 +8,42 @@ names:
 
 | Maven directory | Maven artifact | JPMS module |
 | --- | --- | --- |
+| `api` | `jsatdecode-api` | `eu.dariolucia.jsatdecode.api` |
 | `core` | `jsatdecode-core` | `eu.dariolucia.jsatdecode.core` |
 | `decoder_base` | `decoder-base` | `eu.dariolucia.jsatdecode.decoder.base` |
 | `decoder_elektrol_ggak` | `decoder-elektrol-ggak` | `eu.dariolucia.jsatdecode.decoder.elektrol.ggak` |
 | `decoder_hinode` | `decoder-hinode` | `eu.dariolucia.jsatdecode.decoder.hinode` |
 
-The group ID for all four artifacts is `eu.dariolucia.jsatdecode`.
+The group ID for all five artifacts is `eu.dariolucia.jsatdecode`.
 
 ## Dependencies and exported packages
 
 | Module | Declared dependencies, in addition to implicit `java.base` |
 | --- | --- |
-| Core | `requires transitive java.desktop`, `requires java.xml`, `requires org.zeromq.jeromq` |
-| Shared decoder library | `requires transitive eu.dariolucia.jsatdecode.core`, `requires jradio` |
-| Each mission decoder | `requires transitive eu.dariolucia.jsatdecode.core`, `requires transitive eu.dariolucia.jsatdecode.decoder.base`, `requires jradio` |
+| API | None |
+| Core | `requires transitive eu.dariolucia.jsatdecode.api`, `requires transitive java.desktop`, `requires java.xml`, `requires org.zeromq.jeromq` |
+| Shared decoder library | `requires transitive eu.dariolucia.jsatdecode.api`, `requires jradio` |
+| Each mission decoder | `requires transitive eu.dariolucia.jsatdecode.api`, `requires transitive eu.dariolucia.jsatdecode.decoder.base`, `requires jradio` |
 
 Core has no dependency on the shared decoder library or either mission module.
-`requires transitive` makes core contracts readable to consumers of the shared
-library and mission decoders. A consumer that uses jradio types itself must
+`requires transitive` makes API contracts readable to consumers of core, the
+shared library and mission decoders. A consumer that uses jradio types itself must
 declare its own `requires jradio`; jradio is not part of the exported decoder
 API. Core's exported Swing panel API extends Java desktop types, so
 `java.desktop` is transitive. Modular launches require `java.desktop` and
 `java.xml` to be present in the runtime, including headless decoding runs.
 
+Mission decoder tests and qualification tools use core with test scope. Their
+builds copy test dependencies to `target/lib` so the existing local launcher
+and recording commands continue to work; core is not a published runtime
+dependency of a mission decoder.
+
 All package names below have the prefix `eu.dariolucia.jsatdecode`:
 
 | Module | Exported packages |
 | --- | --- |
-| Core | `api.config`, `api.decoder`, `api.distribution`, `api.frame`, `api.lifecycle`, `api.monitoring`, `api.source`, `api.taps`; `core.buffers`, `core.config`, `core.monitoring`, `core.registry`, `core.runtime`; `distribution.zmq`, `distribution.zmq.client`; `dsp.fft`; `source.file`, `source.cf32`, `source.cs16`, `source.wav`, `source.fmcomms2`; `ui.swing`; `util` |
+| API | `api.config`, `api.decoder`, `api.distribution`, `api.frame`, `api.lifecycle`, `api.monitoring`, `api.source`, `api.taps`; `core.buffers`, `core.monitoring`; `dsp.fft`; `util` |
+| Core | `core.config`, `core.registry`, `core.runtime`; `distribution.tcp`, `distribution.tcp.client`, `distribution.tcp.codec`, `distribution.tcp.server`, `distribution.zmq`, `distribution.zmq.client`; `source.file`, `source.cf32`, `source.cs16`, `source.wav`, `source.fmcomms2`; `ui.swing` |
 | Shared decoder library | `decoder.base`, `decoder.base.config`, `decoder.base.dsp`, `decoder.base.monitoring` |
 | Elektro-L GGAK | `elektrol` |
 | Hinode | `hinode` |
@@ -44,6 +52,9 @@ Core's launcher, CLI, Inspector, dummy-decoder and synthetic-distribution
 packages are encapsulated on the module path. The JVM can invoke an application
 main class without exporting its package. There are no `opens` declarations;
 modules use public APIs and service providers without deep reflective access.
+The API retains the historical `core.buffers` and `core.monitoring` package
+names for shared helpers; those packages are owned solely by API, avoiding split
+packages and preserving existing imports.
 
 The main core JAR supplies the `MainLauncher` entry point. There is no separate
 `modular` classifier. Applications that previously selected that classifier
@@ -55,27 +66,30 @@ From the repository root, using JDK 25 or later and Maven:
 
 ```text
 mvn clean verify
+mvn -f api/pom.xml clean verify
 mvn -pl decoder_hinode -am verify
+jar --describe-module --file api/target/jsatdecode-api-0.1.0-SNAPSHOT.jar
 jar --describe-module --file core/target/jsatdecoder.jar
 ```
 
 The full build compiles explicit descriptors and runs the Java test harnesses.
-The distribution checks also inspect all four packaged descriptors, resolve the
+The distribution checks also inspect all five packaged descriptors, resolve the
 module graph with core as the root and service binding enabled, and launch the
 packaged applications to check factory discovery and argument handling.
-An external named consumer also compiles against the shared library and runs
-both mission decoders through service discovery, checking DSP and lifecycle
-without access overrides.
+Independent named consumers compile and run with API alone and with the shared
+library plus its required dependencies, without core. An external named
+consumer also uses core's registry to run both mission decoders through service
+discovery, checking DSP and lifecycle without access overrides.
 The harnesses use the classpath for existing functional tests; the packaged
 application checks exercise the module path. Desktop interaction and external
 recording checks remain opt-in as described in the component documentation.
 
-Publication remains controlled by the `release` profile for `core` and
+Publication remains controlled by the `release` profile for `api`, `core` and
 `decoder_base`. Their ordinary published JARs include the module descriptors.
 
 ## Run on the module path
 
-The [standalone distribution](../../distribution/README.md) collects the four
+The [standalone distribution](../../distribution/README.md) collects the five
 application modules and their runtime dependencies in `lib/`. After extraction,
 its launchers run these commands, with the appropriate Java executable:
 
@@ -91,7 +105,7 @@ decoder, put its modular JAR and runtime dependencies in `lib/` and register its
 factory as described below. Do not place multiple versions of the same module
 on that path.
 
-For core development, `mvn -pl core verify` copies test/runtime dependencies into
+For core development, `mvn -pl core -am verify` copies test/runtime dependencies into
 `core/target/test-dependencies`. From the repository root on Windows:
 
 ```powershell

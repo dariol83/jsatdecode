@@ -11,17 +11,20 @@ dependency order:
 
 | Module | Responsibility |
 | --- | --- |
-| `core` | Public framework APIs, sources, runtime, distribution adapters, monitoring UI and JSatInspector |
+| `api` | Public contracts and reusable FFT, monitoring, tap and time utilities; no external dependencies |
+| `core` | Sources, runtime, distribution adapters, monitoring UI and JSatInspector |
 | `decoder_base` | Shared lifecycle, configuration, DSP and monitoring helpers for decoder implementations |
 | `decoder_elektrol_ggak` | Elektro-L GGAK decoder |
 | `decoder_hinode` | Hinode telemetry decoder |
 | `distribution` | Standalone application packages, launchers and packaged-distribution checks |
 
-`decoder_base` depends on core and jradio 1.121. Mission DSP, framing, lock
-detectors and accounting remain in the decoder modules. Core has no dependency
-on these modules. Factories are discovered through `ServiceLoader`.
+`decoder_base` depends on API and jradio 1.121. Mission decoders use API and the
+shared decoder library; their runtime/desktop qualification tests also use core.
+Mission DSP, framing, lock detectors and accounting remain in the decoder
+modules. Core has no dependency on these modules. Factories are discovered
+through `ServiceLoader`.
 
-The four Java modules each contain a `module-info.java`; `distribution` is a
+The five Java modules each contain a `module-info.java`; `distribution` is a
 Maven packaging module. JPMS names, exported packages, service declarations and
 module-path development commands are documented in [Java modules](java-modules.md).
 
@@ -38,7 +41,7 @@ are created in `distribution/target`. Their launchers select JSatDecode or
 JSatInspector and supply the module path and runtime dependencies. See the
 [distribution guide](../../distribution/README.md).
 
-Core tests use executable Java test harnesses bound to Maven's test phase.
+API and core tests use executable Java test harnesses bound to Maven's test phase.
 These cover API contracts, bounded observation, FFT utilities, file sources,
 runtime behavior, native-source protocol handling, ZMQ clients, Swing models and
 Inspector behavior. Desktop and recording-dependent runners require their

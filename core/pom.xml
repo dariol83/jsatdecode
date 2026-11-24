@@ -37,6 +37,9 @@
         <skipTests>false</skipTests>
     </properties>
     <dependencies>
+        <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-api</artifactId><version>${project.version}</version>
+        </dependency>
         <!-- Implementation-only binding: no org.zeromq types in the stable API. -->
         <dependency>
             <groupId>org.zeromq</groupId><artifactId>jeromq</artifactId><version>0.6.0</version>
@@ -132,26 +135,6 @@
                         <goals><goal>java</goal></goals>
                         <configuration>
                             <mainClass>eu.dariolucia.jsatdecode.CoreApiTest</mainClass>
-                            <classpathScope>test</classpathScope>
-                            <skip>${skipTests}</skip>
-                        </configuration>
-                    </execution>
-                    <execution>
-                        <id>phase-two-observability-tests</id>
-                        <phase>test</phase>
-                        <goals><goal>java</goal></goals>
-                        <configuration>
-                            <mainClass>eu.dariolucia.jsatdecode.ObservabilityTest</mainClass>
-                            <classpathScope>test</classpathScope>
-                            <skip>${skipTests}</skip>
-                        </configuration>
-                    </execution>
-                    <execution>
-                        <id>phase-three-spectrum-tests</id>
-                        <phase>test</phase>
-                        <goals><goal>java</goal></goals>
-                        <configuration>
-                            <mainClass>eu.dariolucia.jsatdecode.SpectrumTest</mainClass>
                             <classpathScope>test</classpathScope>
                             <skip>${skipTests}</skip>
                         </configuration>
