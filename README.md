@@ -16,6 +16,9 @@ JSatDecode provides deterministic file acquisition, live hardware source support
 
 ## Build
 
+Building requires JDK 25 or later and Maven. Running the packaged applications
+requires a Java 25 or later runtime.
+
 See [Distribution and Output](core/docs/runtime.md) for complete build and configuration instructions.
 
 ```bash

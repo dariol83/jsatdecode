@@ -1,6 +1,6 @@
 # JSatDecode core
 
-The Java 21 core module provides sample sources, decoder and distributor APIs,
+The Java 25 core module provides sample sources, decoder and distributor APIs,
 runtime management, monitoring, spectrum utilities, the optional Swing decoder
 window and [JSatInspector](docs/jsatinspector.md). Java packages use
 `eu.dariolucia.jsatdecode`. Its JPMS name is
@@ -39,7 +39,7 @@ including the ten mandatory `DecoderStatusKeys` metrics and unavailable-value ru
 
 ## Build and run
 
-Use JDK 21 or later and Maven. From the repository root:
+Use JDK 25 or later and Maven. From the repository root:
 
 ```text
 mvn verify
@@ -50,7 +50,7 @@ The full reactor produces a [stand-alone distribution](../distribution/README.md
 in `distribution/target` containing both applications, both mission decoders and
 runtime dependencies. After extraction, use `bin/jsatdecoder.bat` or
 `bin/jsatdecoder.sh`, and `bin/jsatinspector.bat` or `bin/jsatinspector.sh`.
-These launchers use Java's module system and require Java 21 or later from
+These launchers use Java's module system and require Java 25 or later from
 `JAVA_HOME` or `PATH`.
 
 For core development, Maven copies dependencies to `core/target/test-dependencies`.

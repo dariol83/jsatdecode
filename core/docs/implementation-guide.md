@@ -6,7 +6,7 @@ the component documents for configuration and public contracts.
 
 ## Build and module structure
 
-The repository targets Java 21. The root Maven reactor builds these modules in
+The repository targets Java 25. The root Maven reactor builds these modules in
 dependency order:
 
 | Module | Responsibility |

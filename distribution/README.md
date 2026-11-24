@@ -2,14 +2,14 @@
 
 This package contains JSatDecoder, JSatInspector, `core`, `decoder_base`, the
 Elektro-L GGAK and Hinode decoders and every runtime dependency. No Maven installation is needed
-to run it. Install Java 21 or later with the `java.desktop` and `java.xml`
+to run it. Install Java 25 or later with the `java.desktop` and `java.xml`
 modules; these are required by the modular runtime even for headless decoding.
 The scripts use `JAVA_HOME` when set, otherwise
 the `java` command on `PATH`. A Java runtime is not bundled.
 
 ## Build and extract
 
-From the repository root, with JDK 21 or later and Maven:
+From the repository root, with JDK 25 or later and Maven:
 
 ```text
 mvn verify

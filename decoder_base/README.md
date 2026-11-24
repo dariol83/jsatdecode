@@ -1,6 +1,6 @@
 # Shared decoder infrastructure
 
-`eu.dariolucia.jsatdecode:decoder-base:0.1.0-SNAPSHOT` is a Java 21 library for
+`eu.dariolucia.jsatdecode:decoder-base:0.1.0-SNAPSHOT` is a Java 25 library for
 mission decoders. It depends on the core contracts and jradio **1.121**. Core
 does not depend on this module. The library registers no factory, thread,
 transport, UI or standalone receiver.
@@ -61,7 +61,7 @@ for the DC filter interfaces and behavior.
 
 ## Build and verification
 
-From the repository root with JDK 21 or later:
+From the repository root with JDK 25 or later:
 
 ```powershell
 mvn -pl decoder_base -am verify

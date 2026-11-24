@@ -1,6 +1,6 @@
 # Hinode decoder for JSatDecode
 
-Independent Java 21 Maven decoder module, factory ID `hinode_s_tlm`. It integrates
+Independent Java 25 Maven decoder module, factory ID `hinode_s_tlm`. It integrates
 through the Decoder/DecoderFactory API and generic monitoring, taps and frame
 contracts. The module uses the public `DecoderStatusKeys` vocabulary and
 implements the [mandatory decoder contract](../core/docs/decoder-implementation-specification.md).
@@ -24,7 +24,7 @@ or decoding has stopped. See [receiver properties](docs/receiver.md) for cadence
 accuracy limits and DSP ownership, [verification](docs/qualification.md) for test
 coverage and recording procedures, and the [reference GRC](grc/decoder_hinode_solar.grc).
 
-Build from the repository root using JDK 21 or later:
+Build from the repository root using JDK 25 or later:
 
 ```powershell
 mvn -pl decoder_hinode -am verify

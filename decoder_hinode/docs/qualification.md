@@ -2,7 +2,7 @@
 
 ## Automated checks
 
-From the repository root with JDK 21 or later:
+From the repository root with JDK 25 or later:
 
 ```powershell
 mvn -pl decoder_hinode -am verify

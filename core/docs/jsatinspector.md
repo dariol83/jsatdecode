@@ -8,12 +8,12 @@ decoder runtime, distributor or JSatDecode monitoring session.
 The [stand-alone distribution](../../distribution/README.md) includes JSatInspector
 and all runtime dependencies. After extraction, launch `bin/jsatinspector.bat`
 on Windows or `./bin/jsatinspector.sh` on Linux/macOS. Both scripts use the Java
-module system and forward all supplied arguments, including `--help`. Java 21 or
+module system and forward all supplied arguments, including `--help`. Java 25 or
 later must be available through `JAVA_HOME` or `PATH`; Maven is not needed at
 runtime. A graphical desktop is required to open the application; `--help`
 also works without a display.
 
-To build and run the individual core JAR from the repository root with Java 21
+To build and run the individual core JAR from the repository root with Java 25
 or newer:
 
 ```text

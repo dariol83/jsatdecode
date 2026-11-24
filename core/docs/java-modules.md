@@ -1,6 +1,6 @@
 # Java modules
 
-JSatDecode targets Java 21. Each Java artifact includes `module-info.class` in
+JSatDecode targets Java 25. Each Java artifact includes `module-info.class` in
 its main JAR and can run on the Java Platform Module System (JPMS) module path.
 The Maven reactor's `distribution` project packages these artifacts; it has no
 Java module of its own. Maven directory and artifact names differ from JPMS
@@ -51,7 +51,7 @@ should depend on the ordinary `jsatdecode-core` artifact.
 
 ## Build and verification
 
-From the repository root, using JDK 21 or later and Maven:
+From the repository root, using JDK 25 or later and Maven:
 
 ```text
 mvn clean verify

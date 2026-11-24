@@ -1,6 +1,6 @@
 # Elektro-L GGAK decoder
 
-Independent Java 21 JSatDecode module, factory ID `elektrol_ggak`. The normative
+Independent Java 25 JSatDecode module, factory ID `elektrol_ggak`. The normative
 DSP reference is [decoder_elektrol_ggak.grc](grc/decoder_elektrol_ggak.grc), receiver v1.5.
 The receiver uses blind carrier acquisition/AFC, a narrow residual-carrier PLL
 and power normalization before BPSK recovery. Output consists of

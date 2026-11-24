@@ -1,6 +1,6 @@
 # Elektro-L GGAK receiver
 
-Factory ID **elektrol_ggak**, package `eu.dariolucia.jsatdecode.elektrol`, Java 21,
+Factory ID **elektrol_ggak**, package `eu.dariolucia.jsatdecode.elektrol`, Java 25,
 jradio **1.121**. This independent module implements the existing Decoder and
 DecoderFactory APIs and registers its factory through ServiceLoader. Numerical
 DSP, settings, framing, tests, examples and reference artifacts remain here.

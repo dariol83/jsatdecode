@@ -365,6 +365,11 @@ public final class ZmqClientTest {
                 await(() -> framesReceived.get() == 10 && monitoringReceived.get() == 8, "exact subscribed multipart delivery");
                 await(() -> observations.stream().anyMatch(value -> value.channel() == ZmqClient.Channel.FRAMES &&
                         value.receivedBytesPerSecond() > 0 && value.receivedMessagesPerSecond() > 0), "positive receive rates");
+                // Status snapshots are published periodically and can lag behind callbacks,
+                // independently for each channel.
+                await(() -> status(client, ZmqClient.Channel.FRAMES).receivedMessages() == 10 &&
+                        status(client, ZmqClient.Channel.MONITORING).receivedMessages() == 8,
+                        "per-channel status counters catch up with callbacks");
                 ClientStatus f = status(client, ZmqClient.Channel.FRAMES), m = status(client, ZmqClient.Channel.MONITORING);
                 check(f.receivedMessages() == 10 && m.receivedMessages() == 8, "channel counters independent");
                 check(f.receivedBytes() == frameBytes && m.receivedBytes() == monitoringBytes, "byte rate counts multipart bodies including topic");

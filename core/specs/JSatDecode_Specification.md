@@ -17,7 +17,7 @@ The Maven reactor contains these modules:
 | `decoder_hinode` | Hinode decoder |
 | `distribution` | Standalone application archive and launch scripts |
 
-Java 21 is the compilation baseline. Public API signatures use Java SE and other
+Java 25 is the compilation baseline. Public API signatures use Java SE and other
 framework API types. Core uses JeroMQ internally for ZMQ transport. The shared
 decoder library depends on core and jradio 1.121; mission modules depend on the
 shared library. Core has no dependency on mission modules or jradio.
@@ -383,7 +383,7 @@ recording layout and test-mode behavior.
 
 ## Build and verification
 
-Build the repository with Java 21 or later:
+Build the repository with Java 25 or later:
 
 ```text
 mvn verify

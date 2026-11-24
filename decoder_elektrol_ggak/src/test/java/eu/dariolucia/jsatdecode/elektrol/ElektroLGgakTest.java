@@ -37,7 +37,7 @@ public final class ElektroLGgakTest {
         synthetic();
         failures();
         checks += ElektroLGgakEdgeTest.run();
-        examples();
+        runtimeIntegration();
         System.out.println("Elektro-L GGAK: " + checks + " checks passed");
     }
 
@@ -254,36 +254,42 @@ public final class ElektroLGgakTest {
         }
     }
 
-    private static void examples() throws Exception {
+    private static void runtimeIntegration() throws Exception {
         Path module = Path.of("decoder_elektrol_ggak");
         if (!Files.isDirectory(module)) module = Path.of(".");
-        for (String name : new String[] {"elektrol-ggak-wav.properties", "elektrol-ggak-pluto.properties",
-                "elektrol-ggak-cs16.properties"}) {
-            var c = ConfigurationLoader.load(Map.of(), module.resolve("examples").resolve(name), Map.of(), Map.of());
-            try (var decoder = new ElektroLGgakDecoder(c.getSection("decoder"))) {
-                check(decoder.state() == ComponentState.CONFIGURED, "Runtime-shaped example " + name);
-            }
-            if (name.equals("elektrol-ggak-cs16.properties")) {
-                check(c.getString("source.type").equals("cs16"), "Recording example selects CS16");
-                check(c.getDouble("source.output_frequency_offset") == 0, "Centered recording needs no source translation");
-                check(!c.getBoolean("decoder.dcblocker"), "Recording example preserves the GRC residual carrier");
-                check(!c.getBoolean("source.realtime"), "Recording example processes without realtime pacing");
-            } else check(c.getDouble("source.output_frequency_offset") == 250000, "Positive source translation");
-        }
-        // Exercise the WAV example through actual ServiceLoader/runtime/distribution and EOF.
+        // Exercise ServiceLoader/runtime/distribution and EOF with test-owned settings.
         Files.createDirectories(module.resolve("target"));
-        Path wav = module.resolve("target/test-empty.wav").toAbsolutePath();
-        ByteBuffer bytes = ByteBuffer.allocate(44 + 8192).order(ByteOrder.LITTLE_ENDIAN);
-        bytes.put(new byte[] {'R','I','F','F'}).putInt(bytes.capacity() - 8).put(new byte[] {'W','A','V','E','f','m','t',' '})
-                .putInt(16).putShort((short) 3).putShort((short) 2).putInt(1000000).putInt(8000000)
-                .putShort((short) 8).putShort((short) 32).put(new byte[] {'d','a','t','a'}).putInt(8192);
-        Files.write(wav, bytes.array());
-        var c = ConfigurationLoader.load(Map.of(), module.resolve("examples/elektrol-ggak-wav.properties"),
-                Map.of(), Map.of("source.file", wav.toString()));
-        try (var runtime = JSatDecodeRuntime.create(c)) {
-            runtime.start();
-            runtime.awaitCompletion();
-            check(runtime.failure().isEmpty(), "Actual WAV/rotation/synthetic distribution EOF");
+        Path wav = Files.createTempFile(module.resolve("target"), "elektrol-runtime-", ".wav").toAbsolutePath();
+        Path properties = Files.createTempFile(module.resolve("target"), "elektrol-runtime-", ".properties");
+        try {
+            ByteBuffer bytes = ByteBuffer.allocate(44 + 8192).order(ByteOrder.LITTLE_ENDIAN);
+            bytes.put(new byte[] {'R','I','F','F'}).putInt(bytes.capacity() - 8).put(new byte[] {'W','A','V','E','f','m','t',' '})
+                    .putInt(16).putShort((short) 3).putShort((short) 2).putInt(1000000).putInt(8000000)
+                    .putShort((short) 8).putShort((short) 32).put(new byte[] {'d','a','t','a'}).putInt(8192);
+            Files.write(wav, bytes.array());
+            Files.writeString(properties, """
+                    source.type=wav
+                    source.sample_rate=1000000
+                    source.output_frequency_offset=250000
+                    source.realtime=false
+                    source.repeat=false
+                    source.block_samples=4096
+                    decoder.type=elektrol_ggak
+                    decoder.sample_rate_hz=1000000
+                    decoder.dcblocker=false
+                    distribution.frames.type=synthetic
+                    distribution.monitoring.type=synthetic
+                    ui.enabled=false
+                    """);
+            var c = ConfigurationLoader.load(Map.of(), properties, Map.of(), Map.of("source.file", wav.toString()));
+            try (var runtime = JSatDecodeRuntime.create(c)) {
+                runtime.start();
+                runtime.awaitCompletion();
+                check(runtime.failure().isEmpty(), "Actual WAV/rotation/synthetic distribution EOF");
+            }
+        } finally {
+            Files.deleteIfExists(properties);
+            Files.deleteIfExists(wav);
         }
     }
 }

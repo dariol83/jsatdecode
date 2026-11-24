@@ -2,7 +2,7 @@
 
 ## Automated module and framework checks
 
-From the repository root with JDK 21 or later:
+From the repository root with JDK 25 or later:
 
 ```powershell
 mvn -pl decoder_elektrol_ggak -am verify
@@ -19,7 +19,7 @@ invariance with enabled and bypassed DC removal. Framing checks cover bit
 alignment, both polarities, MSB-first payloads, search/hold marker thresholds,
 sticky hold behavior, repeated payloads and incomplete trailing candidates.
 
-The updated decoder suite passes **317 checks**, including independent weak
+The decoder suite passes **308 checks**, including independent weak
 carrier tones at +/-23 kHz with amplitude 1e-4, AFC two-FFT acquisition and
 delay, silence behavior, and analytical normalization power-step and
 silence-state checks.
@@ -36,9 +36,9 @@ The suite checks the ten mandatory status keys/descriptors/types across
 lifecycle states, counters, unavailable carrier/timing/SNR values, concurrent
 tap/status polling, sample-clock UTC metadata and overflow, source continuity,
 rate mismatch, nonfinite input, one-shot lifecycle, frame activity expiry and
-sink failure. WAV, CS16 and Pluto examples are loaded by the core ConfigurationLoader.
-Generated WAV input exercises the runtime, source rotator and synthetic
-distribution through EOF.
+sink failure. A test-owned properties file and generated WAV input exercise the
+configuration loader, runtime, source rotator and synthetic distribution through
+EOF without depending on example configuration values.
 
 Packaged CLI discovery can be checked with:
 

@@ -24,7 +24,7 @@ public final class JSatInspector {
 
     /**
      * Opens JSatInspector, restoring user settings without connecting to hardware
-     * or starting a recording. Requires a graphical Java 21 or newer runtime.
+     * or starting a recording. Requires a graphical Java 25 or newer runtime.
      *
      * @param args optional {@code --help}; no other arguments are supported
      */
