@@ -2,7 +2,7 @@
 
 JSatDecode targets Java 25. Each Java artifact includes `module-info.class` in
 its main JAR and can run on the Java Platform Module System (JPMS) module path.
-The Maven reactor's `distribution` project packages these artifacts, while
+The Maven reactor's `deployment` project packages these artifacts, while
 `integration_tests` runs cross-module tests; neither is a Java module. Maven
 directory and artifact names differ from JPMS names:
 
@@ -101,9 +101,10 @@ jar --describe-module --file core/target/jsatdecoder.jar
 ```
 
 The full build compiles explicit descriptors and runs the Java test harnesses.
-The distribution checks also inspect all ten packaged descriptors, resolve the
-module graph with core as the root and service binding enabled, and launch the
-packaged applications to check factory discovery and argument handling.
+The deployment checks inspect the selected packaged descriptors and resolve
+each application's module graph with service binding enabled. They reject
+unrelated project modules and launch the packaged applications to check factory
+discovery and argument handling.
 Independent consumers compile and run with API alone, with each source provider,
 and with the shared library plus its required dependencies, without core. Source
 and distribution providers are also exercised independently on the module path
@@ -120,12 +121,14 @@ module descriptors.
 
 ## Run on the module path
 
-The [standalone distribution](../../distribution/README.md) collects the ten
-application modules and their runtime dependencies in `lib/`. After extraction,
-its launchers run these commands, with the appropriate Java executable:
+The [application deployments](../../deployment/README.md) collect selected
+modules and their runtime dependencies in `lib/`. JSatDecode includes nine
+project modules; JSatInspector includes API, core, Inspector and the two source
+modules, with no mission decoder or distribution providers. After extracting
+the corresponding archive, its launcher runs one of these commands:
 
 ```text
-java --module-path lib --module eu.dariolucia.jsatdecode.core/eu.dariolucia.jsatdecode.MainLauncher --list-decoders
+java --module-path lib --module eu.dariolucia.jsatdecode.core/eu.dariolucia.jsatdecode.cli.Main --list-decoders
 java --module-path lib --module eu.dariolucia.jsatdecode.inspector --help
 ```
 

@@ -28,7 +28,7 @@ includes test-only JUnit dependencies; production needs only API, core and the
 selected source providers. The main JAR, `target/jsatinspector.jar`, declares
 JSatInspector as its entry point.
 
-The existing [distribution](../distribution/README.md) includes the application
+The [Inspector deployment](../deployment/README.md) includes the application
 and installs this module's `src/main/bin/jsatinspector.sh` and `.bat` launchers.
 The core launcher's `--inspector` selector remains compatible through the
 `ApplicationLauncher` service, registered for both JPMS and classpath launches.

@@ -22,7 +22,7 @@ dependency order:
 | `decoder_elektrol_ggak` | Elektro-L GGAK decoder |
 | `decoder_hinode` | Hinode telemetry decoder |
 | `integration_tests` | Cross-module source and distribution checks; no production artifact |
-| `distribution` | Standalone application packages, launchers and packaged-distribution checks |
+| `deployment` | Independent application archives, launchers and packaged-deployment checks |
 
 Each source and distribution module depends only on API among JSatDecode modules. Core and
 Inspector discover source factories through `ServiceLoader`; Inspector selects
@@ -36,7 +36,7 @@ Mission DSP, framing, lock detectors and accounting remain in the decoder
 modules. Core has no dependency on these modules. Factories are discovered
 through `ServiceLoader`.
 
-The ten Java modules each contain a `module-info.java`; `distribution` and
+The ten Java modules each contain a `module-info.java`; `deployment` and
 `integration_tests` are Maven-only projects. JPMS names, exported packages, service declarations and
 module-path development commands are documented in [Java modules](java-modules.md).
 
@@ -48,10 +48,11 @@ mvn -pl decoder_hinode -am verify
 ~~~
 
 The first command builds and checks the complete reactor; the second selects
-one decoder and its reactor dependencies. The standalone ZIP and tar.gz archives
-are created in `distribution/target`. Their launchers select JSatDecode or
-JSatInspector and supply the module path and runtime dependencies. See the
-[distribution guide](../../distribution/README.md).
+one decoder and its reactor dependencies. Separate JSatDecode and JSatInspector
+ZIP and tar.gz archives are created in `deployment/target`. Select either alone
+with `mvn -pl deployment -am -Pjsatdecode verify` or `-Pjsatinspector`.
+Each archive supplies its application's launchers, module path and runtime
+dependencies. See the [deployment guide](../../deployment/README.md).
 
 API, core and integration tests use executable Java harnesses bound to Maven's test phase.
 These cover API contracts, bounded observation, FFT utilities, file sources,

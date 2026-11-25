@@ -38,9 +38,10 @@ service-provider registration and module-path commands.
 
 ## Examples
 
-Build and extract the [stand-alone distribution](distribution/README.md), which
-includes the mission decoders and runtime dependencies. Run these examples from
-the extracted directory on Windows; on Linux/macOS, use `./bin/jsatdecoder.sh`
+Build and extract the corresponding [application deployment](deployment/README.md).
+JSatDecode includes the mission decoders and output providers; JSatInspector
+includes its application and source providers. Run each example from its
+application's extracted directory on Windows; on Linux/macOS, use `./bin/jsatdecoder.sh`
 and `./bin/jsatinspector.sh` instead of the `.bat` launchers.
 
 ### Launch JSatDecode CLI
@@ -74,6 +75,8 @@ bin/jsatinspector.bat --help
 
 - [API module](api/README.md) - Public contracts and dependency-free utilities
 - [JSatInspector](inspector/README.md) - Independent source inspection and IQ recording application
+- [Application deployments](deployment/README.md) - Separate JSatDecode and JSatInspector archives
+- [Migration verification](regression/step-9-final-migration.md) - Final regression results and coverage
 - [File sources](source_file/README.md) and [FMComms2 source](source_fmcomms2/README.md) - Independent acquisition providers
 - [ZMQ distribution](distribution_zmq/README.md) and [JTDP distribution](distribution_jtdp/README.md) - Independent output providers
 - [Configuration reference](core/docs/configuration-reference.md) - All source and distribution keys, defaults and ranges, including recording frequency offset

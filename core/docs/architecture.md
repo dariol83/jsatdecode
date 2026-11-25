@@ -7,7 +7,7 @@ pace or backpressure acquisition or DSP.
 
 The root Maven reactor builds API, source and distribution providers, core, Inspector,
 `decoder_base`, `decoder_elektrol_ggak`, `decoder_hinode` and the standalone
-`distribution` in dependency order. Decoder modules depend on API, the shared
+`deployment` in dependency order. Decoder modules depend on API, the shared
 library and jradio 1.121. Core has no production dependency on a provider, a mission
 module or the shared decoder library. Shared infrastructure is documented in
 [decoder_base](../../decoder_base/README.md); numerical DSP, framing and mission
@@ -32,9 +32,9 @@ diagnostics. Their functional counting callback performs no Swing or filesystem
 work. Management stops and joins each run before logging its diagnostics.
 
 API, core, the providers, the shared library and both mission JARs contain explicit JPMS descriptors.
-The [standalone distribution](../../distribution/README.md) includes these same
-JARs and their runtime dependencies. Launchers use `--module-path` and the core
-module `eu.dariolucia.jsatdecode.core`. Descriptor `uses` and `provides`
+The [application deployments](../../deployment/README.md) select the JARs
+needed by JSatDecode or Inspector and include their runtime dependencies.
+Launchers use `--module-path` and their application's module. Descriptor `uses` and `provides`
 declarations support modular factory discovery; `META-INF/services` resources
 also support classpath applications. Individual modules can be built with their
 dependencies through the root reactor. See [Java modules](java-modules.md) for

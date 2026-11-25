@@ -66,7 +66,7 @@ Use normal properties and CLI overrides:
 bin/jsatdecoder.bat --config examples/core/fmcomms2-dummy.properties --set source.uri=ip:192.168.2.1 --set source.frequency=137100000 --ui
 ```
 
-Run this command from an extracted [distribution](../../distribution/README.md).
+Run this command from an extracted [distribution](../../deployment/README.md).
 The example decoder is **integration-only** and emits raw-IQ test records with
 no RF/symbol plot taps. Use a mission decoder
 matching the configured input rate for mission reception. Hinode currently

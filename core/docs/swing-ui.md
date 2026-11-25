@@ -6,7 +6,7 @@ with Java2D plots; see [spectrum-ui.md](spectrum-ui.md), and a bounded I/Q
 constellation; see [constellation-ui.md](constellation-ui.md). UI observation
 runs independently of source and decoder callbacks.
 
-From an extracted [distribution](../../distribution/README.md) on Windows:
+From an extracted [distribution](../../deployment/README.md) on Windows:
 
 ~~~text
 bin/jsatdecoder.bat --ui-demo

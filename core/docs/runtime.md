@@ -27,7 +27,7 @@ big-endian length prefixes for disk boundaries. See
 [frame-recording.md](frame-recording.md) for layout, reading, lifecycle and failures.
 
 Build with `mvn verify` from the repository root. From an extracted
-[distribution](../../distribution/README.md) on Windows:
+[distribution](../../deployment/README.md) on Windows:
 
 ~~~text
 bin/jsatdecoder.bat --list-sources

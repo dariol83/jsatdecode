@@ -1,4 +1,4 @@
-package eu.dariolucia.jsatdecode.distribution;
+package eu.dariolucia.jsatdecode.deployment;
 
 import java.io.IOException;
 import java.lang.module.ModuleDescriptor;
@@ -17,7 +17,7 @@ import java.util.zip.ZipFile;
 import javax.imageio.ImageIO;
 
 /** Exercises the actual assembled package in separate modular Java processes. */
-public final class DistributionTest {
+public final class DeploymentTest {
     private static final boolean WINDOWS = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
     private static final Path JAVA_HOME = Path.of(System.getProperty("java.home"));
     private static final String CORE_MODULE = "eu.dariolucia.jsatdecode.core";
@@ -28,52 +28,73 @@ public final class DistributionTest {
     private static final String RADIO_SOURCE_MODULE = "eu.dariolucia.jsatdecode.source.fmcomms2";
     private static final String ZMQ_MODULE = "eu.dariolucia.jsatdecode.distribution.zmq";
     private static final String JTDP_MODULE = "eu.dariolucia.jsatdecode.distribution.jtdp";
-    private static final Set<String> APPLICATION_MODULES = Set.of(API_MODULE, CORE_MODULE, INSPECTOR_MODULE,
+    private static final Set<String> DECODER_MODULES = Set.of(API_MODULE, CORE_MODULE,
             DECODER_BASE_MODULE, "eu.dariolucia.jsatdecode.decoder.elektrol.ggak",
             "eu.dariolucia.jsatdecode.decoder.hinode", FILE_SOURCE_MODULE, RADIO_SOURCE_MODULE,
             ZMQ_MODULE, JTDP_MODULE);
     private static final Set<String> DECODERS = Set.of("dummy", "elektrol_ggak", "hinode_s_tlm");
+    private static final Set<String> INSPECTOR_MODULES = Set.of(API_MODULE, CORE_MODULE, INSPECTOR_MODULE,
+            FILE_SOURCE_MODULE, RADIO_SOURCE_MODULE);
 
-    private DistributionTest() { }
+    private DeploymentTest() { }
 
-    /** @param args the ZIP created during the package phase */
+    /** @param args decoder and Inspector ZIP paths; '-' denotes an unselected deployment */
     public static void main(String[] args) throws Exception {
-        check(args.length == 1, "Expected the assembled distribution ZIP path");
-        Path archive = Path.of(args[0]).toAbsolutePath();
-        Path smokeDirectory = Files.createDirectories(archive.getParent().resolve("distribution-smoke-test"));
-        Path extracted = Files.createTempDirectory(smokeDirectory, "package with spaces ");
+        check(args.length == 2 && !(args[0].equals("-") && args[1].equals("-")), "Expected at least one selected deployment");
+        if (!args[0].equals("-")) checkDecoderDeployment(Path.of(args[0]).toAbsolutePath());
+        if (!args[1].equals("-")) checkInspectorDeployment(Path.of(args[1]).toAbsolutePath());
+        System.out.println("Deployment checks passed: independent archives, explicit modules, providers, launcher arguments and exit codes.");
+    }
+
+    private static PackageContents checkArchive(Path archive, String application, Set<String> expectedModules) throws Exception {
+        Path smokeDirectory = Files.createDirectories(archive.getParent().resolve("deployment-smoke-test"));
+        Path extracted = Files.createTempDirectory(smokeDirectory, application + " package with spaces ");
         Path home = extract(archive, extracted);
+        check(home.getFileName().toString().equals(archive.getFileName().toString().replaceFirst("\\.zip$", "")),
+                "Unexpected deployment root directory");
         Path lib = home.resolve("lib");
-        check(Files.isDirectory(lib), "Distribution has no lib directory");
+        check(Files.isDirectory(lib), "Deployment has no lib directory");
         Set<String> jars;
         try (var entries = Files.list(lib)) {
             jars = entries.map(path -> path.getFileName().toString()).collect(Collectors.toSet());
         }
-        for (String artifact : List.of("jsatdecode-api", "jsatdecode-core", "jsatdecode-inspector", "jsatdecode-source-file",
+        check(jars.stream().allMatch(name -> name.endsWith(".jar")), "Unexpected non-JAR runtime dependency: " + jars);
+        for (String extension : List.of(".sh", ".bat")) {
+            check(Files.isRegularFile(home.resolve("bin").resolve(application + extension)), "Missing launcher " + application + extension);
+            String other = application.equals("jsatdecoder") ? "jsatinspector" : "jsatdecoder";
+            check(!Files.exists(home.resolve("bin").resolve(other + extension)), "Unrelated launcher was packaged: " + other);
+        }
+        String icon = application.equals("jsatdecoder") ? "icon-jsatdecode.png" : "icon-jsatinspector.png";
+        Path iconFile = home.resolve("icons").resolve(icon);
+        check(Files.isRegularFile(iconFile) && ImageIO.read(iconFile.toFile()) != null, "Missing or unreadable icon " + icon);
+        String otherIcon = application.equals("jsatdecoder") ? "icon-jsatinspector.png" : "icon-jsatdecode.png";
+        check(!Files.exists(home.resolve("icons").resolve(otherIcon)), "Unrelated application icon was packaged");
+        check(Files.isRegularFile(home.resolve("LICENSE")), "Missing license");
+        check(Files.isRegularFile(home.resolve("docs/README.md")), "Missing documentation index");
+        checkModuleDescriptors(lib, expectedModules);
+        Path working = Files.createDirectories(extracted.resolve("caller working directory"));
+        String rootModule = application.equals("jsatdecoder") ? CORE_MODULE : INSPECTOR_MODULE;
+        Result modules = run(List.of(javaTool("java"),
+                "--module-path", lib.toString(), "--add-modules", rootModule, "--validate-modules"), working, false);
+        check(modules.exitCode() == 0, "Deployment module graph is invalid:\n" + modules.output());
+        return new PackageContents(home, lib, working, jars);
+    }
+
+    private static void checkDecoderDeployment(Path archive) throws Exception {
+        PackageContents contents = checkArchive(archive, "jsatdecoder", DECODER_MODULES);
+        Path lib = contents.lib(), working = contents.working();
+        Set<String> jars = contents.jars();
+        for (String artifact : List.of("jsatdecode-api", "jsatdecode-core", "jsatdecode-source-file",
                 "jsatdecode-source-fmcomms2", "jsatdecode-distribution-zmq", "jsatdecode-distribution-jtdp",
                 "decoder-base", "decoder-elektrol-ggak", "decoder-hinode",
                 "jeromq", "jradio", "JTransforms",
                 "JLargeArrays", "commons-math3", "ascii85", "jnacl", "metrics-core", "slf4j-api", "ssdv4j")) {
             check(jars.stream().anyMatch(name -> name.startsWith(artifact + "-") && name.endsWith(".jar")),
-                    "Distribution is missing " + artifact);
+                    "Decoder deployment is missing " + artifact);
         }
-        for (String script : List.of("jsatdecoder.sh", "jsatdecoder.bat", "jsatinspector.sh", "jsatinspector.bat")) {
-            check(Files.isRegularFile(home.resolve("bin").resolve(script)), "Missing launcher " + script);
-        }
-        for (String icon : List.of("icon-jsatdecode.png", "icon-jsatinspector.png")) {
-            Path iconFile = home.resolve("icons").resolve(icon);
-            check(Files.isRegularFile(iconFile), "Missing application icon " + icon);
-            check(ImageIO.read(iconFile.toFile()) != null, "Unreadable application icon " + icon);
-        }
-        checkModuleDescriptors(lib);
-        Path working = Files.createDirectories(extracted.resolve("caller working directory"));
-        Result modules = run(List.of(javaTool("java"),
-                "--module-path", lib.toString(), "--add-modules", CORE_MODULE, "--validate-modules"), working, false);
-        check(modules.exitCode() == 0, "Distribution module graph is invalid:\n" + modules.output());
         smokeIndependentConsumers(lib, working);
         smokeIndependentSources(lib, working);
         smokeIndependentDistributors(lib, working);
-        smokeIndependentInspector(lib, working);
         smokeNamedConsumer(lib, working);
 
         // Both a quoted config path and its relative input path must survive the scripts.
@@ -88,20 +109,23 @@ public final class DistributionTest {
                 distribution.monitoring.type=synthetic
                 """, StandardCharsets.UTF_8);
 
-        if (WINDOWS) {
-            smoke(home, working, null);
-            Path shell = findWindowsShell();
-            if (shell != null) smoke(home, working, shell);
-            else System.out.println("Distribution smoke tests: Git sh unavailable; POSIX launchers checked on Unix builds.");
-        } else {
-            smoke(home, working, Path.of("/bin/sh"));
-        }
-        System.out.println("Distribution smoke tests passed: complete package, explicit modules, external consumer, mission DSP, launcher arguments and exit codes.");
+        smokeLaunchers(contents, true);
     }
 
-    private static void checkModuleDescriptors(Path lib) {
+    private static void checkInspectorDeployment(Path archive) throws Exception {
+        PackageContents contents = checkArchive(archive, "jsatinspector", INSPECTOR_MODULES);
+        check(contents.jars().size() == 5, "Inspector must contain only API, core, Inspector and source providers: " + contents.jars());
+        smokeIndependentSources(contents.lib(), contents.working());
+        smokeIndependentInspector(contents.lib(), contents.working());
+        smokeLaunchers(contents, false);
+    }
+
+    private static void checkModuleDescriptors(Path lib, Set<String> expectedModules) {
         ModuleFinder finder = ModuleFinder.of(lib);
-        for (String name : APPLICATION_MODULES) {
+        Set<String> actualModules = finder.findAll().stream().map(reference -> reference.descriptor().name())
+                .filter(name -> name.startsWith("eu.dariolucia.jsatdecode.")).collect(Collectors.toSet());
+        check(actualModules.equals(expectedModules), "Unexpected project modules: " + actualModules);
+        for (String name : expectedModules) {
             var reference = finder.find(name).orElseThrow(() -> new AssertionError("Missing application module " + name));
             check(!reference.descriptor().isAutomatic(), "Application module must have module-info.class: " + name);
         }
@@ -109,19 +133,21 @@ public final class DistributionTest {
         check(api.requires().size() == 1 && api.requires().iterator().next().name().equals("java.base"),
                 "API must depend only on java.base");
         checkProjectRequirements(finder, CORE_MODULE, Set.of(API_MODULE));
-        checkProjectRequirements(finder, DECODER_BASE_MODULE, Set.of(API_MODULE));
         checkProjectRequirements(finder, FILE_SOURCE_MODULE, Set.of(API_MODULE));
         checkProjectRequirements(finder, RADIO_SOURCE_MODULE, Set.of(API_MODULE));
-        checkProjectRequirements(finder, ZMQ_MODULE, Set.of(API_MODULE));
-        checkProjectRequirements(finder, JTDP_MODULE, Set.of(API_MODULE));
-        for (String decoder : List.of("eu.dariolucia.jsatdecode.decoder.elektrol.ggak",
-                "eu.dariolucia.jsatdecode.decoder.hinode")) {
-            checkProjectRequirements(finder, decoder, Set.of(API_MODULE, DECODER_BASE_MODULE));
+        if (expectedModules.contains(DECODER_BASE_MODULE)) {
+            checkProjectRequirements(finder, DECODER_BASE_MODULE, Set.of(API_MODULE));
+            checkProjectRequirements(finder, ZMQ_MODULE, Set.of(API_MODULE));
+            checkProjectRequirements(finder, JTDP_MODULE, Set.of(API_MODULE));
+            for (String decoder : List.of("eu.dariolucia.jsatdecode.decoder.elektrol.ggak",
+                    "eu.dariolucia.jsatdecode.decoder.hinode")) {
+                checkProjectRequirements(finder, decoder, Set.of(API_MODULE, DECODER_BASE_MODULE));
+            }
         }
-        // Starting only core must bring mission and source providers into the graph through uses/provides.
-        var configuration = ModuleLayer.boot().configuration().resolveAndBind(finder, ModuleFinder.of(), Set.of(CORE_MODULE));
-        for (String name : APPLICATION_MODULES) {
-            check(configuration.findModule(name).isPresent(), "Core service binding did not resolve " + name);
+        String root = expectedModules.contains(INSPECTOR_MODULE) ? INSPECTOR_MODULE : CORE_MODULE;
+        var configuration = ModuleLayer.boot().configuration().resolveAndBind(finder, ModuleFinder.of(), Set.of(root));
+        for (String name : expectedModules) {
+            check(configuration.findModule(name).isPresent(), "Service binding did not resolve " + name);
         }
     }
 
@@ -545,7 +571,32 @@ public final class DistributionTest {
         }
     }
 
-    private static void smoke(Path home, Path working, Path shell) throws Exception {
+    private static void smokeLaunchers(PackageContents contents, boolean decoder) throws Exception {
+        List<Path> shells = new ArrayList<>();
+        if (WINDOWS) {
+            shells.add(null);
+            Path shell = findWindowsShell();
+            if (shell != null) shells.add(shell);
+            else System.out.println("Deployment checks: Git sh unavailable; POSIX launchers checked on Unix builds.");
+        } else shells.add(Path.of("/bin/sh"));
+        for (Path shell : shells) {
+            if (decoder) smokeDecoder(contents.home(), contents.working(), shell);
+            else smokeInspector(contents.home(), contents.working(), shell);
+        }
+    }
+
+    private static void smokeInspector(Path home, Path working, Path shell) throws Exception {
+        String label = shell == null ? "Windows batch" : "POSIX shell";
+        for (String option : List.of("--help", "-h")) {
+            Result help = launch(home, working, shell, "jsatinspector", option);
+            check(help.exitCode() == 0 && help.output().contains("JSatInspector"), label + " Inspector help failed:\n" + help.output());
+        }
+        Result invalid = launch(home, working, shell, "jsatinspector", "--deployment-invalid-option");
+        check(invalid.exitCode() != 0 && invalid.output().contains("argument"), label + " Inspector must propagate application errors:\n" + invalid.output());
+        System.out.println("Inspector deployment smoke tests passed for " + label + ".");
+    }
+
+    private static void smokeDecoder(Path home, Path working, Path shell) throws Exception {
         String label = shell == null ? "Windows batch" : "POSIX shell";
         Result help = launch(home, working, shell, "jsatdecoder", "--help");
         check(help.exitCode() == 0 && help.output().contains("JSatDecode"), label + " decoder help failed:\n" + help.output());
@@ -559,18 +610,12 @@ public final class DistributionTest {
             check(sources.output().lines().anyMatch(line -> line.startsWith(source + " - ")),
                     label + " did not discover source " + source);
         }
-        Result inspector = launch(home, working, shell, "jsatinspector", "--help");
-        check(inspector.exitCode() == 0 && inspector.output().contains("JSatInspector"),
-                label + " inspector help failed:\n" + inspector.output());
         Result runtime = launch(home, working, shell, "jsatdecoder", "--config", "input config !.properties", "--headless",
                 "--set", "source.sample_rate=2000", "--set", "source.block_samples=16");
         check(runtime.exitCode() == 0, label + " quoted arguments or caller working directory were lost:\n" + runtime.output());
-        for (String application : List.of("jsatdecoder", "jsatinspector")) {
-            Result invalid = launch(home, working, shell, application, "--distribution-invalid-option");
-            check(invalid.exitCode() != 0 && (invalid.output().contains("argument") || invalid.output().contains("Unknown option")),
-                    label + " " + application + " must propagate application errors:\n" + invalid.output());
-        }
-        System.out.println("Distribution smoke tests passed for " + label + ".");
+        Result invalid = launch(home, working, shell, "jsatdecoder", "--deployment-invalid-option");
+        check(invalid.exitCode() != 0 && invalid.output().contains("Unknown option"), label + " decoder must propagate application errors:\n" + invalid.output());
+        System.out.println("Decoder deployment smoke tests passed for " + label + ".");
     }
 
     private static Result launch(Path home, Path working, Path shell, String application, String... args) throws Exception {
@@ -635,4 +680,5 @@ public final class DistributionTest {
     }
 
     private record Result(int exitCode, String output) { }
+    private record PackageContents(Path home, Path lib, Path working, Set<String> jars) { }
 }

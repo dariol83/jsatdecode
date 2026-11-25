@@ -22,7 +22,7 @@ The Maven reactor contains these modules:
 | `decoder_elektrol_ggak` | Elektro-L GGAK decoder |
 | `decoder_hinode` | Hinode decoder |
 | `integration_tests` | Source and distribution integration checks across modules |
-| `distribution` | Standalone application archive and launch scripts |
+| `deployment` | Independent JSatDecode and JSatInspector archives and launch scripts |
 
 Java 25 is the compilation baseline. Public API signatures use Java SE and other
 framework API types; the API has no external dependencies. The ZMQ provider uses
@@ -33,12 +33,14 @@ dependency on mission modules or jradio.
 
 The ten Java JARs contain explicit JPMS descriptors. Core packages the
 `MainLauncher` entry point in `eu.dariolucia.jsatdecode.core`. The standalone
-distribution includes the API, source, distribution, core and Inspector JARs, shared decoder support, the two mission
-modules and their runtime dependencies. The distribution launchers use the Java
+JSatDecode deployment includes API, core, source/distribution providers, shared
+decoder support, the two mission modules and their runtime dependencies.
+The JSatInspector deployment includes only API, core, Inspector and source
+providers. The deployment launchers use the Java
 module path and discover factories through descriptor `uses`/`provides`
 declarations. Service-provider resources also retain classpath compatibility.
 See [Java modules](../docs/java-modules.md) and the
-[distribution guide](../../distribution/README.md).
+[distribution guide](../../deployment/README.md).
 
 ## Functional path and observation
 
@@ -404,7 +406,7 @@ mvn verify
 
 `mvn -pl core -am verify` builds and checks the API and framework;
 `mvn -pl inspector -am verify` builds and checks Inspector independently. The reactor
-also runs shared-library and mission tests, packages the standalone distribution,
+also runs shared-library and mission tests, packages both application deployments,
 and validates its content/launchers. Maven invokes the repository's Java test
 entry points; API, core and source integration tests cover contracts, observations,
 FFT, file sources, runtime ownership, Inspector behavior, the IIOD adapter and ZMQ clients. Desktop,

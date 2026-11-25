@@ -6,7 +6,7 @@ recordings. Application code lives
 in `eu.dariolucia.jsatdecode.inspector` in the independent `inspector` module. It constructs no decoder,
 decoder runtime, distributor or JSatDecode monitoring session.
 
-The [stand-alone distribution](../../distribution/README.md) includes JSatInspector
+The [Inspector deployment](../../deployment/README.md) includes JSatInspector
 and all runtime dependencies. After extraction, launch `bin/jsatinspector.bat`
 on Windows or `./bin/jsatinspector.sh` on Linux/macOS. Both scripts use the Java
 module system and forward all supplied arguments, including `--help`. Java 25 or

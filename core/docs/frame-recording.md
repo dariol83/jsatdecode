@@ -6,7 +6,7 @@ Add `--store <folder>` to a normal framework invocation:
 bin/jsatdecoder.bat --config examples/decoder_hinode/hinode-wav.properties --set source.file=C:/recordings/Hinode_90secs.wav --ui --store 'C:/recordings/decoded frames'
 ```
 
-Run this command from an extracted [distribution](../../distribution/README.md),
+Run this command from an extracted [distribution](../../deployment/README.md),
 which includes mission decoders and dependencies. For development classpath
 commands, see the [implementation guide](implementation-guide.md). IntelliJ Run
 arguments accept `--store "C:/decoded frames"`.

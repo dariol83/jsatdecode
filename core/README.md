@@ -52,10 +52,11 @@ mvn verify
 mvn -pl core -am verify
 ```
 
-The full reactor produces a [stand-alone distribution](../distribution/README.md)
-in `distribution/target` containing both applications, both mission decoders and
-runtime dependencies. After extraction, use `bin/jsatdecoder.bat` or
-`bin/jsatdecoder.sh`, and `bin/jsatinspector.bat` or `bin/jsatinspector.sh`.
+The full reactor produces separate [application deployments](../deployment/README.md)
+in `deployment/target`. JSatDecode contains the runtime, both mission decoders
+and providers; JSatInspector contains the application, API, core and source
+providers. Extract the desired archive and use its `bin/jsatdecoder.bat` /
+`bin/jsatdecoder.sh` or `bin/jsatinspector.bat` / `bin/jsatinspector.sh`.
 These launchers use Java's module system and require Java 25 or later from
 `JAVA_HOME` or `PATH`.
 

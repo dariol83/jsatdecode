@@ -13,7 +13,7 @@ The registered frame and monitoring factory IDs are both `zmq`. They implement
 the generic APIs; source, decoder, runtime, UI and API packages import no ZMQ
 types. JeroMQ 0.6.0 and its jnacl 1.0.0 dependency are implementation details.
 Production CBOR encoding is self-contained; Jackson is test-only. The
-[stand-alone distribution](../../distribution/README.md) includes runtime JARs
+[stand-alone distribution](../../deployment/README.md) includes runtime JARs
 and upstream license notices and discovers factories on the module path. ZMQ
 transport requires no native library.
 
