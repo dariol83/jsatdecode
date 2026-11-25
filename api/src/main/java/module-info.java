@@ -1,5 +1,6 @@
 /** Public contracts and dependency-free utilities shared by JSatDecode modules. */
 module eu.dariolucia.jsatdecode.api {
+    exports eu.dariolucia.jsatdecode.api.application;
     exports eu.dariolucia.jsatdecode.api.config;
     exports eu.dariolucia.jsatdecode.api.decoder;
     exports eu.dariolucia.jsatdecode.api.distribution;

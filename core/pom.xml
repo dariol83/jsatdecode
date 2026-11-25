@@ -116,26 +116,6 @@
                 <version>3.5.1</version>
                 <executions>
                     <execution>
-                        <id>inspector-settings-tests</id><phase>test</phase><goals><goal>java</goal></goals>
-                        <configuration><mainClass>eu.dariolucia.jsatdecode.inspector.InspectorSettingsTest</mainClass><classpathScope>test</classpathScope><skip>${skipTests}</skip></configuration>
-                    </execution>
-                    <execution>
-                        <id>inspector-receiver-tests</id><phase>test</phase><goals><goal>java</goal></goals>
-                        <configuration><mainClass>eu.dariolucia.jsatdecode.inspector.InspectorReceiverTest</mainClass><classpathScope>test</classpathScope><skip>${skipTests}</skip></configuration>
-                    </execution>
-                    <execution>
-                        <id>inspector-recording-tests</id><phase>test</phase><goals><goal>java</goal></goals>
-                        <configuration><mainClass>eu.dariolucia.jsatdecode.inspector.IqRecorderTest</mainClass><classpathScope>test</classpathScope><skip>${skipTests}</skip></configuration>
-                    </execution>
-                    <execution>
-                        <id>inspector-drop-sample-tests</id><phase>test</phase><goals><goal>java</goal></goals>
-                        <configuration><mainClass>eu.dariolucia.jsatdecode.inspector.InspectorDropSampleTest</mainClass><classpathScope>test</classpathScope><skip>${skipTests}</skip></configuration>
-                    </execution>
-                    <execution>
-                        <id>inspector-analysis-tests</id><phase>test</phase><goals><goal>java</goal></goals>
-                        <configuration><mainClass>eu.dariolucia.jsatdecode.inspector.InspectorAnalysisTest</mainClass><classpathScope>test</classpathScope><skip>${skipTests}</skip></configuration>
-                    </execution>
-                    <execution>
                         <id>phase-one-contract-tests</id>
                         <phase>test</phase>
                         <goals><goal>java</goal></goals>

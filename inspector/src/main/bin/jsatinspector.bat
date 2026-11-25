@@ -6,5 +6,5 @@ if defined JAVA_HOME (
 ) else (
     set "JAVA_COMMAND=java.exe"
 )
-"%JAVA_COMMAND%" --module-path "%APP_HOME%\lib" --module eu.dariolucia.jsatdecode.core/eu.dariolucia.jsatdecode.inspector.JSatInspector %*
+"%JAVA_COMMAND%" --module-path "%APP_HOME%\lib" --module eu.dariolucia.jsatdecode.inspector/eu.dariolucia.jsatdecode.inspector.JSatInspector %*
 exit /b %ERRORLEVEL%

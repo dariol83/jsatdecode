@@ -88,7 +88,7 @@ final class InspectorWindow extends JFrame {
     InspectorWindow(InspectorSettings initial, Actions actions, Map<String, SampleSourceFactory> factories) {
         super("JSatInspector");
         requireEdt();
-        ApplicationIcon.INSPECTOR.applyTo(this);
+        ApplicationIcon.INSPECTOR.applyTo(this, JSatInspector.class);
         this.actions = Objects.requireNonNull(actions);
         lastValidSettings = Objects.requireNonNull(initial);
         sourceFactories = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(factories));

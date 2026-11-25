@@ -6,7 +6,7 @@
     <version>0.1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <name>JSatDecode reactor</name>
-    <description>Builds the API, core, shared decoder library, mission modules and standalone distribution</description>
+    <description>Builds the API, core, Inspector, source and distribution providers, decoders and standalone distribution</description>
     <url>https://www.github.com/dariol83/jsatdecode</url>
 
     <developers>
@@ -38,6 +38,7 @@
         <module>distribution_zmq</module>
         <module>distribution_jtdp</module>
         <module>core</module>
+        <module>inspector</module>
         <module>decoder_base</module>
         <module>decoder_elektrol_ggak</module>
         <module>decoder_hinode</module>

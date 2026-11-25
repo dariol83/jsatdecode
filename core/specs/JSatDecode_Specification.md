@@ -16,7 +16,8 @@ The Maven reactor contains these modules:
 | `source_fmcomms2` | FMComms2/PlutoPlus source provider |
 | `distribution_zmq` | SatDecode ZMQ output and frame recording providers |
 | `distribution_jtdp` | TCP/JTDP output providers and shared listener registry |
-| `core` | Configuration, runtime, outputs, monitoring, Swing observer and JSatInspector |
+| `core` | Configuration, runtime, outputs, monitoring, Swing observer and shared UI components |
+| `inspector` | Standalone JSatInspector application, acquisition, analysis and IQ recording |
 | `decoder_base` | Shared decoder lifecycle, monitoring, configuration and DSP adapters |
 | `decoder_elektrol_ggak` | Elektro-L GGAK decoder |
 | `decoder_hinode` | Hinode decoder |
@@ -30,9 +31,9 @@ JSatDecode modules. The shared decoder library depends on API and
 jradio 1.121; mission modules depend on API and the shared library. Core has no
 dependency on mission modules or jradio.
 
-The nine Java JARs contain explicit JPMS descriptors. Core packages the
+The ten Java JARs contain explicit JPMS descriptors. Core packages the
 `MainLauncher` entry point in `eu.dariolucia.jsatdecode.core`. The standalone
-distribution includes the API, source, distribution and core JARs, shared decoder support, the two mission
+distribution includes the API, source, distribution, core and Inspector JARs, shared decoder support, the two mission
 modules and their runtime dependencies. The distribution launchers use the Java
 module path and discover factories through descriptor `uses`/`provides`
 declarations. Service-provider resources also retain classpath compatibility.
@@ -381,8 +382,11 @@ length prefixes for disk boundaries. Filenames use processing-start UTC. See
 
 ## JSatInspector
 
-JSatInspector is a separate Swing application in core that directly reuses the
-IIOD source, FFT and spectrum renderer. It constructs no decoder, runtime or
+JSatInspector is a separate Swing application in the `inspector` module. It uses
+discovered source providers, API FFT utilities and core's shared spectrum renderer
+and registry. The optional `ApplicationLauncher` service preserves the core
+launcher's `--inspector` selector without a dependency on the application.
+Inspector constructs no decoder, runtime or
 frame/monitoring distributors. It supports configurable spectrum/waterfall
 refresh, stateful software filtering/decimation, and independently controlled
 asynchronous CF32/CS16 recording. Test mode uses a separate count-only source and
@@ -398,7 +402,8 @@ Build the repository with Java 25 or later:
 mvn verify
 ```
 
-`mvn -pl core -am verify` builds and checks the API and framework. The reactor
+`mvn -pl core -am verify` builds and checks the API and framework;
+`mvn -pl inspector -am verify` builds and checks Inspector independently. The reactor
 also runs shared-library and mission tests, packages the standalone distribution,
 and validates its content/launchers. Maven invokes the repository's Java test
 entry points; API, core and source integration tests cover contracts, observations,

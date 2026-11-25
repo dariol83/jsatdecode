@@ -27,9 +27,12 @@ mvn verify
 
 # Build only core module
 mvn -pl core -am verify
+
+# Build Inspector and its dependencies
+mvn -pl inspector -am verify
 ```
 
-The nine Java artifacts are explicit Java Platform Module System (JPMS) modules.
+The ten Java artifacts are explicit Java Platform Module System (JPMS) modules.
 See [Java modules](core/docs/java-modules.md) for their names, exported APIs,
 service-provider registration and module-path commands.
 
@@ -70,6 +73,7 @@ bin/jsatinspector.bat --help
 ## Documentation
 
 - [API module](api/README.md) - Public contracts and dependency-free utilities
+- [JSatInspector](inspector/README.md) - Independent source inspection and IQ recording application
 - [File sources](source_file/README.md) and [FMComms2 source](source_fmcomms2/README.md) - Independent acquisition providers
 - [ZMQ distribution](distribution_zmq/README.md) and [JTDP distribution](distribution_jtdp/README.md) - Independent output providers
 - [Configuration reference](core/docs/configuration-reference.md) - All source and distribution keys, defaults and ranges, including recording frequency offset

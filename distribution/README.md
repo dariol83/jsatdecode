@@ -1,6 +1,6 @@
 # JSatDecode stand-alone distribution
 
-This package contains JSatDecoder, JSatInspector, `api`, `core`, the file and
+This package contains JSatDecoder, the independent `inspector` application, `api`, `core`, the file and
 FMComms2 sources, the ZMQ and JTDP providers, `decoder_base`, the Elektro-L GGAK and Hinode decoders and
 every runtime dependency. No Maven installation is needed
 to run it. Install Java 25 or later with the `java.desktop` and `java.xml`

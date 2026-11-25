@@ -37,6 +37,11 @@ validate shared aliases before components are created. A monitoring output can
 implement `InitialMonitoringSnapshot` to request the runtime's initial snapshot.
 The reusable `AsyncOutput` mailbox provides bounded, worker-owned delivery.
 
+`ApplicationLauncher` supplies optional application entry points without GUI
+types or implementation dependencies. Inspector registers the `inspector` ID
+so core can preserve its `--inspector` selector without depending on that
+application module. Registration uses both JPMS and `META-INF/services`.
+
 Build and run the standalone API checks with JDK 25 and Maven:
 
 ```text

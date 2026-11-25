@@ -14,11 +14,12 @@ directory and artifact names differ from JPMS names:
 | `distribution_zmq` | `jsatdecode-distribution-zmq` | `eu.dariolucia.jsatdecode.distribution.zmq` |
 | `distribution_jtdp` | `jsatdecode-distribution-jtdp` | `eu.dariolucia.jsatdecode.distribution.jtdp` |
 | `core` | `jsatdecode-core` | `eu.dariolucia.jsatdecode.core` |
+| `inspector` | `jsatdecode-inspector` | `eu.dariolucia.jsatdecode.inspector` |
 | `decoder_base` | `decoder-base` | `eu.dariolucia.jsatdecode.decoder.base` |
 | `decoder_elektrol_ggak` | `decoder-elektrol-ggak` | `eu.dariolucia.jsatdecode.decoder.elektrol.ggak` |
 | `decoder_hinode` | `decoder-hinode` | `eu.dariolucia.jsatdecode.decoder.hinode` |
 
-The group ID for all nine artifacts is `eu.dariolucia.jsatdecode`.
+The group ID for all ten artifacts is `eu.dariolucia.jsatdecode`.
 
 ## Dependencies and exported packages
 
@@ -30,12 +31,14 @@ The group ID for all nine artifacts is `eu.dariolucia.jsatdecode`.
 | ZMQ distribution | `requires transitive eu.dariolucia.jsatdecode.api`, `requires org.zeromq.jeromq` |
 | JTDP distribution | `requires transitive eu.dariolucia.jsatdecode.api` |
 | Core | `requires transitive eu.dariolucia.jsatdecode.api`, `requires transitive java.desktop` |
+| Inspector | `requires eu.dariolucia.jsatdecode.api`, `requires eu.dariolucia.jsatdecode.core`, `requires java.desktop` |
 | Shared decoder library | `requires transitive eu.dariolucia.jsatdecode.api`, `requires jradio` |
 | Each mission decoder | `requires transitive eu.dariolucia.jsatdecode.api`, `requires transitive eu.dariolucia.jsatdecode.decoder.base`, `requires jradio` |
 
 Each source and distribution module depends on API alone among JSatDecode modules.
 Core has no production dependency on those providers, the shared decoder library
-or either mission module.
+or either mission module. Inspector depends on API and core's shared registry and
+UI components, and discovers source providers without concrete dependencies.
 `requires transitive` makes API contracts readable to consumers of core, the
 shared library and mission decoders. A consumer that uses jradio types itself must
 declare its own `requires jradio`; jradio is not part of the exported decoder
@@ -53,23 +56,29 @@ All package names below have the prefix `eu.dariolucia.jsatdecode`:
 
 | Module | Exported packages |
 | --- | --- |
-| API | `api.config`, `api.decoder`, `api.distribution`, `api.frame`, `api.lifecycle`, `api.monitoring`, `api.source`, `api.taps`; `core.buffers`, `core.monitoring`; `dsp.fft`; `util` |
+| API | `api.application`, `api.config`, `api.decoder`, `api.distribution`, `api.frame`, `api.lifecycle`, `api.monitoring`, `api.source`, `api.taps`; `core.buffers`, `core.monitoring`; `dsp.fft`; `util` |
 | File sources | `source.file`, `source.cf32`, `source.cs16`, `source.wav` |
 | FMComms2 source | `source.fmcomms2` |
 | ZMQ distribution | `distribution.zmq`, `distribution.zmq.client` |
 | JTDP distribution | `distribution.tcp`, `distribution.tcp.client`, `distribution.tcp.codec`, `distribution.tcp.server` |
-| Core | `core.config`, `core.registry`, `core.runtime`; `ui.swing` |
+| Core | `core.config`, `core.registry`, `core.runtime`; `ui`, `ui.swing` |
+| Inspector | `inspector` |
 | Shared decoder library | `decoder.base`, `decoder.base.config`, `decoder.base.dsp`, `decoder.base.monitoring` |
 | Elektro-L GGAK | `elektrol` |
 | Hinode | `hinode` |
 
-Core's launcher, CLI, Inspector, dummy-decoder and synthetic-distribution
+Core's launcher, CLI, dummy-decoder and synthetic-distribution
 packages are encapsulated on the module path. The JVM can invoke an application
 main class without exporting its package. There are no `opens` declarations;
 modules use public APIs and service providers without deep reflective access.
 The API retains the historical `core.buffers` and `core.monitoring` package
 names for shared helpers; those packages are owned solely by API, avoiding split
 packages and preserving existing imports.
+
+Inspector exports its existing application package for direct entry-point use.
+Its icon and launch scripts belong to that module. Core retains the shared icon
+helper, source registry and reusable spectrum widgets. The `ApplicationLauncher`
+service preserves `MainLauncher --inspector` without a circular dependency.
 
 Code that imports a concrete source or distribution class on the module path must
 require its owning provider module. Existing Java package names are unchanged;
@@ -92,7 +101,7 @@ jar --describe-module --file core/target/jsatdecoder.jar
 ```
 
 The full build compiles explicit descriptors and runs the Java test harnesses.
-The distribution checks also inspect all nine packaged descriptors, resolve the
+The distribution checks also inspect all ten packaged descriptors, resolve the
 module graph with core as the root and service binding enabled, and launch the
 packaged applications to check factory discovery and argument handling.
 Independent consumers compile and run with API alone, with each source provider,
@@ -106,18 +115,18 @@ application checks exercise the module path. Desktop interaction and external
 recording checks remain opt-in as described in the component documentation.
 
 Publication remains controlled by the `release` profile for `api`, both source
-and distribution modules, `core` and `decoder_base`. Their ordinary published JARs include the
+and distribution modules, `core`, `inspector` and `decoder_base`. Their ordinary published JARs include the
 module descriptors.
 
 ## Run on the module path
 
-The [standalone distribution](../../distribution/README.md) collects the nine
+The [standalone distribution](../../distribution/README.md) collects the ten
 application modules and their runtime dependencies in `lib/`. After extraction,
 its launchers run these commands, with the appropriate Java executable:
 
 ```text
 java --module-path lib --module eu.dariolucia.jsatdecode.core/eu.dariolucia.jsatdecode.MainLauncher --list-decoders
-java --module-path lib --module eu.dariolucia.jsatdecode.core/eu.dariolucia.jsatdecode.inspector.JSatInspector --help
+java --module-path lib --module eu.dariolucia.jsatdecode.inspector --help
 ```
 
 Core declares the factory services it consumes. Standard launcher service
@@ -146,12 +155,14 @@ from filenames. The current runtime graph cannot be packaged directly with
 ## Service providers
 
 Core declares `uses` for all four factory contracts and the optional distribution
-configuration normalizer service:
+configuration normalizer and application-launcher services. Inspector declares
+`uses SampleSourceFactory` and registers its optional entry point:
 
 | Service in `eu.dariolucia.jsatdecode.api` | Provider module | IDs |
 | --- | --- | --- |
 | `source.SampleSourceFactory` | File sources | `wav`, `cf32`, `cs16` |
 | `source.SampleSourceFactory` | FMComms2 source | `fmcomms2` |
+| `application.ApplicationLauncher` | Inspector | `inspector` |
 | `decoder.DecoderFactory` | Core | `dummy` |
 | `distribution.FrameDistributorFactory` | Core | `synthetic` |
 | `distribution.MonitoringDistributorFactory` | Core | `synthetic` |

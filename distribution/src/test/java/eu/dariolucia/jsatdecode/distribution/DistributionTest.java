@@ -22,12 +22,13 @@ public final class DistributionTest {
     private static final Path JAVA_HOME = Path.of(System.getProperty("java.home"));
     private static final String CORE_MODULE = "eu.dariolucia.jsatdecode.core";
     private static final String API_MODULE = "eu.dariolucia.jsatdecode.api";
+    private static final String INSPECTOR_MODULE = "eu.dariolucia.jsatdecode.inspector";
     private static final String DECODER_BASE_MODULE = "eu.dariolucia.jsatdecode.decoder.base";
     private static final String FILE_SOURCE_MODULE = "eu.dariolucia.jsatdecode.source.file";
     private static final String RADIO_SOURCE_MODULE = "eu.dariolucia.jsatdecode.source.fmcomms2";
     private static final String ZMQ_MODULE = "eu.dariolucia.jsatdecode.distribution.zmq";
     private static final String JTDP_MODULE = "eu.dariolucia.jsatdecode.distribution.jtdp";
-    private static final Set<String> APPLICATION_MODULES = Set.of(API_MODULE, CORE_MODULE,
+    private static final Set<String> APPLICATION_MODULES = Set.of(API_MODULE, CORE_MODULE, INSPECTOR_MODULE,
             DECODER_BASE_MODULE, "eu.dariolucia.jsatdecode.decoder.elektrol.ggak",
             "eu.dariolucia.jsatdecode.decoder.hinode", FILE_SOURCE_MODULE, RADIO_SOURCE_MODULE,
             ZMQ_MODULE, JTDP_MODULE);
@@ -48,7 +49,7 @@ public final class DistributionTest {
         try (var entries = Files.list(lib)) {
             jars = entries.map(path -> path.getFileName().toString()).collect(Collectors.toSet());
         }
-        for (String artifact : List.of("jsatdecode-api", "jsatdecode-core", "jsatdecode-source-file",
+        for (String artifact : List.of("jsatdecode-api", "jsatdecode-core", "jsatdecode-inspector", "jsatdecode-source-file",
                 "jsatdecode-source-fmcomms2", "jsatdecode-distribution-zmq", "jsatdecode-distribution-jtdp",
                 "decoder-base", "decoder-elektrol-ggak", "decoder-hinode",
                 "jeromq", "jradio", "JTransforms",
@@ -72,6 +73,7 @@ public final class DistributionTest {
         smokeIndependentConsumers(lib, working);
         smokeIndependentSources(lib, working);
         smokeIndependentDistributors(lib, working);
+        smokeIndependentInspector(lib, working);
         smokeNamedConsumer(lib, working);
 
         // Both a quoted config path and its relative input path must survive the scripts.
@@ -120,6 +122,43 @@ public final class DistributionTest {
         var configuration = ModuleLayer.boot().configuration().resolveAndBind(finder, ModuleFinder.of(), Set.of(CORE_MODULE));
         for (String name : APPLICATION_MODULES) {
             check(configuration.findModule(name).isPresent(), "Core service binding did not resolve " + name);
+        }
+    }
+
+    private static void smokeIndependentInspector(Path lib, Path working) throws Exception {
+        Path minimal = Files.createDirectories(working.resolve("independent inspector lib"));
+        for (String name : List.of("jsatdecode-api", "jsatdecode-core", "jsatdecode-inspector",
+                "jsatdecode-source-file", "jsatdecode-source-fmcomms2")) {
+            Path jar = artifact(lib, name);
+            Files.copy(jar, minimal.resolve(jar.getFileName()));
+        }
+        var finder = ModuleFinder.of(minimal);
+        var configuration = ModuleLayer.boot().configuration().resolveAndBind(finder, ModuleFinder.of(), Set.of(INSPECTOR_MODULE));
+        Set<String> modules = configuration.modules().stream().map(module -> module.name())
+                .filter(name -> name.startsWith("eu.dariolucia.jsatdecode.")).collect(Collectors.toSet());
+        check(modules.equals(Set.of(API_MODULE, CORE_MODULE, INSPECTOR_MODULE, FILE_SOURCE_MODULE, RADIO_SOURCE_MODULE)),
+                "Independent Inspector requires unexpected project modules: " + modules);
+        var requirements = finder.find(INSPECTOR_MODULE).orElseThrow().descriptor().requires().stream()
+                .map(ModuleDescriptor.Requires::name).filter(name -> name.startsWith("eu.dariolucia.jsatdecode."))
+                .collect(Collectors.toSet());
+        check(requirements.equals(Set.of(API_MODULE, CORE_MODULE)), "Inspector has concrete implementation dependencies: " + requirements);
+        try (ZipFile core = new ZipFile(artifact(lib, "jsatdecode-core").toFile());
+             ZipFile inspector = new ZipFile(artifact(lib, "jsatdecode-inspector").toFile())) {
+            String entry = "eu/dariolucia/jsatdecode/inspector/JSatInspector.class";
+            check(core.getEntry(entry) == null && inspector.getEntry(entry) != null, "Inspector entry point is not isolated");
+            check(core.getEntry("icon-jsatinspector.png") == null && inspector.getEntry("icon-jsatinspector.png") != null,
+                    "Inspector must own its application icon");
+        }
+        for (List<String> launch : List.of(
+                List.of("--module-path", minimal.toString(), "--module", INSPECTOR_MODULE, "--help"),
+                List.of("--module-path", minimal.toString(), "--module", CORE_MODULE, "--inspector", "--help"),
+                List.of("-cp", minimal + java.io.File.separator + "*", "eu.dariolucia.jsatdecode.MainLauncher", "--inspector", "--help"))) {
+            List<String> command = new ArrayList<>();
+            command.add(javaTool("java"));
+            command.addAll(launch);
+            Result result = run(command, working, false);
+            check(result.exitCode() == 0 && result.output().contains("JSatInspector"),
+                    "Independent Inspector launch failed: " + command + "\n" + result.output());
         }
     }
 

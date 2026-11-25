@@ -7,4 +7,4 @@ else
     JAVA_COMMAND=java
 fi
 exec "$JAVA_COMMAND" --module-path "$APP_HOME/lib" \
-    --module eu.dariolucia.jsatdecode.core/eu.dariolucia.jsatdecode.inspector.JSatInspector "$@"
+    --module eu.dariolucia.jsatdecode.inspector/eu.dariolucia.jsatdecode.inspector.JSatInspector "$@"

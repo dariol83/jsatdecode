@@ -53,6 +53,7 @@ public final class InspectorDesktopSmoke {
         }
         Frame window = inspector.get();
         if (window == null) throw new IllegalStateException("Inspector window did not open", uncaught.get());
+        if (window.getIconImages().isEmpty()) throw new IllegalStateException("Inspector icon did not load from its application module");
         System.out.println("window=" + window.getTitle() + " width=" + window.getWidth() + " height=" + window.getHeight());
         SwingUtilities.invokeAndWait(() -> window.dispatchEvent(new WindowEvent(window, WindowEvent.WINDOW_CLOSING)));
         while (window.isDisplayable() && System.nanoTime() < deadline && uncaught.get() == null) Thread.sleep(50);

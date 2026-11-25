@@ -42,6 +42,7 @@ public final class InspectorWindowDesktopTest {
                 InspectorWindow window = new InspectorWindow(defaults, actions);
                 view.set(window);
                 window.setVisible(true);
+                check(!window.getIconImages().isEmpty(), "Inspector icon did not load from its owning module");
                 check(window.settings().equals(defaults), "Initial settings did not round-trip");
                 JComboBox<?> sources = labeled(window, "Source", JComboBox.class);
                 for (int index = 0; index < sources.getItemCount(); index++)

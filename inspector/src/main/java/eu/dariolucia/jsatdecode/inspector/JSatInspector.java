@@ -32,7 +32,7 @@ public final class JSatInspector {
         if (Arrays.asList(args).contains("--help") || Arrays.asList(args).contains("-h")) {
             System.out.println("JSatInspector - spectrum analyser and CF32/CS16 signal saver\n"
                     + "Usage: jsatinspector.sh [--help] (Windows: jsatinspector.bat [--help])\n"
-                    + "       java -jar jsatdecoder.jar --inspector [--help]\n"
+                    + "       java --module-path lib --module eu.dariolucia.jsatdecode.inspector [--help]\n"
                     + "Settings: %APPDATA%/JSatInspector/settings.properties or ~/.jsatinspector/settings.properties\n"
                     + "Connect and recording are started explicitly in the window.");
             return;

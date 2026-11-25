@@ -1,7 +1,8 @@
 # JSatDecode core
 
 The Java 25 core module provides runtime management, monitoring,
-the optional Swing decoder window and [JSatInspector](docs/jsatinspector.md).
+the optional Swing decoder window and shared spectrum/UI components used by
+the independent [JSatInspector module](../inspector/README.md).
 Public contracts and reusable spectrum utilities are in the independent
 [API module](../api/README.md), which core re-exports. Java packages use
 `eu.dariolucia.jsatdecode`. Its JPMS name is
@@ -65,7 +66,6 @@ From the repository root on Windows:
 java -cp 'core/target/classes;core/target/test-dependencies/*' eu.dariolucia.jsatdecode.MainLauncher --help
 java -cp 'core/target/classes;core/target/test-dependencies/*' eu.dariolucia.jsatdecode.MainLauncher --ui-demo
 java -cp 'core/target/classes;core/target/test-dependencies/*' eu.dariolucia.jsatdecode.MainLauncher --config core/examples/dummy.properties --set source.file=C:/recordings/input.cf32 --headless -v
-java -cp 'core/target/classes;core/target/test-dependencies/*' eu.dariolucia.jsatdecode.MainLauncher --inspector
 ```
 
 Use `:` instead of `;` as the classpath separator on Linux/macOS. The same core
@@ -73,6 +73,11 @@ JAR supports the module path and classpath and declares `MainLauncher` as its
 main entry point; its dependencies are separate JARs. See
 [Java modules](docs/java-modules.md) for module-path commands, exported packages
 and service declarations.
+
+Build and launch Inspector separately with `mvn -pl inspector -am verify` and
+the commands in its [application guide](../inspector/docs/jsatinspector.md).
+`MainLauncher --inspector` remains supported when the Inspector JAR is installed
+on the same module path or classpath, through its optional application service.
 
 Maven's Exec plugin runs self-contained API and core test harnesses. The full
 reactor also runs source and distribution integration tests, including IIOD acquisition and recording.

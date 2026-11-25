@@ -33,7 +33,7 @@ public final class FactoryRegistry<T> {
     /**
      * Discovers providers with the current context class loader. On the module
      * path, supports the source, decoder, frame-output and monitoring-output
-     * factory contracts declared by the core module.
+     * factory contracts and optional application launchers declared by the core module.
      *
      * @param <T>        factory contract
      * @param type       factory interface

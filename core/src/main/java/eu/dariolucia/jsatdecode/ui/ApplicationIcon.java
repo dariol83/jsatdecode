@@ -26,8 +26,18 @@ public enum ApplicationIcon {
      * @param window application window
      */
     public void applyTo(Window window) {
+        applyTo(window, ApplicationIcon.class);
+    }
+
+    /**
+     * Applies an icon owned by another application module.
+     *
+     * @param window application window
+     * @param resourceOwner class in the module containing the icon resource
+     */
+    public void applyTo(Window window, Class<?> resourceOwner) {
         BufferedImage icon;
-        try (var stream = ApplicationIcon.class.getResourceAsStream(resource)) {
+        try (var stream = resourceOwner.getResourceAsStream(resource)) {
             if (stream == null) throw new IOException("Missing icon resource: " + resource);
             icon = ImageIO.read(stream);
             if (icon == null) throw new IOException("Invalid icon resource: " + resource);

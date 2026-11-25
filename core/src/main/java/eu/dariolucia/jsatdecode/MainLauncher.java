@@ -1,12 +1,17 @@
 package eu.dariolucia.jsatdecode;
 
+import eu.dariolucia.jsatdecode.api.application.ApplicationLauncher;
+import eu.dariolucia.jsatdecode.core.registry.FactoryRegistry;
+
+import java.util.Arrays;
+
 /**
  * Unified launcher for JSatDecode and JSatInspector.
  * 
  * When launched with --inspector as the first argument, JSatInspector is started.
  * Otherwise, the normal JSatDecode CLI is launched.
  * 
- * This allows both applications to be packaged in a single JAR.
+ * Optional applications are discovered from separate modules or classpath JARs.
  */
 public final class MainLauncher {
     
@@ -22,10 +27,11 @@ public final class MainLauncher {
      */
     public static void main(String[] args) throws Exception {
         if (args.length > 0 && "--inspector".equals(args[0])) {
-            // Launch JSatInspector with remaining arguments
-            String[] inspectorArgs = new String[args.length - 1];
-            System.arraycopy(args, 1, inspectorArgs, 0, inspectorArgs.length);
-            eu.dariolucia.jsatdecode.inspector.JSatInspector.main(inspectorArgs);
+            var applications = FactoryRegistry.discover(ApplicationLauncher.class, ApplicationLauncher::id);
+            ApplicationLauncher inspector = applications.entries().get("inspector");
+            if (inspector == null)
+                throw new IllegalStateException("JSatInspector is not installed; add jsatdecode-inspector to the module path or classpath");
+            inspector.launch(Arrays.copyOfRange(args, 1, args.length));
         } else {
             // Launch JSatDecode with all arguments
             eu.dariolucia.jsatdecode.cli.Main.main(args);

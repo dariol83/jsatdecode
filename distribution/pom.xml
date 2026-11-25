@@ -14,6 +14,10 @@
     </properties>
     <dependencies>
         <dependency>
+            <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-inspector</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>eu.dariolucia.jsatdecode</groupId><artifactId>jsatdecode-api</artifactId>
             <version>${project.version}</version>
         </dependency>

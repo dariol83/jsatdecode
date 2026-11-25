@@ -10,7 +10,9 @@ module eu.dariolucia.jsatdecode.core {
     exports eu.dariolucia.jsatdecode.core.registry;
     exports eu.dariolucia.jsatdecode.core.runtime;
     exports eu.dariolucia.jsatdecode.ui.swing;
+    exports eu.dariolucia.jsatdecode.ui;
 
+    uses eu.dariolucia.jsatdecode.api.application.ApplicationLauncher;
     uses eu.dariolucia.jsatdecode.api.decoder.DecoderFactory;
     uses eu.dariolucia.jsatdecode.api.source.SampleSourceFactory;
     uses eu.dariolucia.jsatdecode.api.distribution.FrameDistributorFactory;

@@ -5,7 +5,7 @@ AnnotatedFrame -> FrameDistributor`. Monitoring snapshots, runtime events and
 RF/baseband/symbol taps are independent observations. Observers must never block,
 pace or backpressure acquisition or DSP.
 
-The root Maven reactor builds API, source and distribution providers, core,
+The root Maven reactor builds API, source and distribution providers, core, Inspector,
 `decoder_base`, `decoder_elektrol_ggak`, `decoder_hinode` and the standalone
 `distribution` in dependency order. Decoder modules depend on API, the shared
 library and jradio 1.121. Core has no production dependency on a provider, a mission
@@ -15,9 +15,11 @@ policies belong to each decoder.
 
 ## Project boundaries
 
-Core contains the framework and [JSatInspector](jsatinspector.md), selected by
-the first launcher argument `--inspector`. Inspector owns its application
-lifecycle and reuses the PlutoPlus source adapter, FFT primitives and spectrum
+Core contains the framework and shared registry/UI components. The independent
+[JSatInspector module](../../inspector/README.md) supplies its direct entry point
+and the `ApplicationLauncher` service used by the compatible `--inspector`
+selector. Inspector owns its application
+lifecycle and reuses discovered source providers, FFT primitives and spectrum
 renderer. It supplies application-local software filtering/decimation, spectrum
 and waterfall analysis, and a bounded asynchronous CF32/CS16 writer. It does not
 instantiate a decoder runtime or distributors.

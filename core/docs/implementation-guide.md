@@ -16,7 +16,8 @@ dependency order:
 | `source_fmcomms2` | FMComms2/PlutoPlus source provider |
 | `distribution_zmq` | SatDecode ZMQ output and frame recording providers |
 | `distribution_jtdp` | TCP/JTDP output providers and shared listener registry |
-| `core` | Runtime, synthetic outputs, monitoring UI and JSatInspector |
+| `core` | Runtime, synthetic outputs, monitoring UI and reusable spectrum/UI components |
+| `inspector` | Standalone JSatInspector application, acquisition, analysis and IQ recording |
 | `decoder_base` | Shared lifecycle, configuration, DSP and monitoring helpers for decoder implementations |
 | `decoder_elektrol_ggak` | Elektro-L GGAK decoder |
 | `decoder_hinode` | Hinode telemetry decoder |
@@ -35,7 +36,7 @@ Mission DSP, framing, lock detectors and accounting remain in the decoder
 modules. Core has no dependency on these modules. Factories are discovered
 through `ServiceLoader`.
 
-The nine Java modules each contain a `module-info.java`; `distribution` and
+The ten Java modules each contain a `module-info.java`; `distribution` and
 `integration_tests` are Maven-only projects. JPMS names, exported packages, service declarations and
 module-path development commands are documented in [Java modules](java-modules.md).
 
@@ -162,8 +163,10 @@ infer decoder locks. Closing the monitoring window stops observation while
 decoding continues. See [Swing UI](swing-ui.md),
 [spectrum UI](spectrum-ui.md) and [constellation UI](constellation-ui.md).
 
-JSatInspector is a separate application in core, selected by the first launcher
-argument `--inspector`. It uses the source adapter, FFT utilities and spectrum
+JSatInspector is a separate application module, built with
+`mvn -pl inspector -am verify`. Its direct entry point and the compatible first
+launcher argument `--inspector` use the same application. It uses the source
+registry, FFT utilities and spectrum
 renderer with application-local software filtering/decimation. Its independent
 writer offers headerless little-endian CF32 and normalized, saturated CS16.
 Queue overflow ends recording while acquisition continues. Spectrum refresh and
