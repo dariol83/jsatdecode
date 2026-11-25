@@ -271,7 +271,7 @@ public final class InspectorAnalysisTest {
                 defaults.storageFolder(), defaults.storageFormat(), false, 1280, 850);
     }
 
-    private static ComplexSampleBlock tone(int size, int bin, double amplitude, int sampleRate, long stamp) {
+    private static ComplexSampleBlock tone(int size, int bin, double amplitude, double sampleRate, long stamp) {
         float[] iq = new float[size * 2];
         for (int i = 0; i < size; i++) {
             double angle = 2 * Math.PI * bin * i / size;

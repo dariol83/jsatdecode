@@ -1,6 +1,7 @@
 package eu.dariolucia.jsatdecode.inspector;
 
 import eu.dariolucia.jsatdecode.dsp.fft.WindowFunction;
+import eu.dariolucia.jsatdecode.api.source.SourceDescriptor;
 import eu.dariolucia.jsatdecode.ui.swing.SpectrumFrame;
 import eu.dariolucia.jsatdecode.ui.swing.SpectrumSettings;
 
@@ -42,10 +43,27 @@ public final class InspectorWindowDesktopTest {
                 view.set(window);
                 window.setVisible(true);
                 check(window.settings().equals(defaults), "Initial settings did not round-trip");
-                JSpinner rxBuffer = labeled(window, "RX buffer (samples)", JSpinner.class);
-                SpinnerNumberModel rxModel = (SpinnerNumberModel) rxBuffer.getModel();
-                check(rxBuffer.getValue().equals(16384) && rxModel.getMinimum().equals(1)
-                                && rxModel.getMaximum().equals(1048576), "RX buffer sample default or bounds failed");
+                JComboBox<?> sources = labeled(window, "Source", JComboBox.class);
+                for (int index = 0; index < sources.getItemCount(); index++)
+                    if (((SourceDescriptor) sources.getItemAt(index)).id().equals("cf32")) sources.setSelectedIndex(index);
+                labeled(window, "Recording file *", JTextField.class).setText("input.cf32");
+                labeled(window, "Sample rate (Hz) *", JTextField.class).setText("48000.5");
+                check(window.settings().sourceId().equals("cf32"), "Source selection did not reach settings");
+                check(!button(window, "Test mode").isVisible(), "Radio diagnostics visible for a file source");
+                window.validate();
+                JTextField fileField = labeled(window, "Recording file *", JTextField.class);
+                check(fileField.getHeight() > 0 && SwingUtilities.convertPoint(fileField, 0, 0, window).y < 400,
+                        "Source property layout did not resize when selecting a file source");
+                for (int index = 0; index < sources.getItemCount(); index++)
+                    if (((SourceDescriptor) sources.getItemAt(index)).id().equals("fmcomms2")) sources.setSelectedIndex(index);
+                check(window.settings().equals(defaults), "Returning to FMComms2 lost its configuration");
+                for (int index = 0; index < sources.getItemCount(); index++)
+                    if (((SourceDescriptor) sources.getItemAt(index)).id().equals("cf32")) sources.setSelectedIndex(index);
+                check(labeled(window, "Recording file *", JTextField.class).getText().equals("input.cf32"), "Source draft was not retained");
+                for (int index = 0; index < sources.getItemCount(); index++)
+                    if (((SourceDescriptor) sources.getItemAt(index)).id().equals("fmcomms2")) sources.setSelectedIndex(index);
+                JTextField rxBuffer = labeled(window, "RX buffer (samples)", JTextField.class);
+                check(rxBuffer.getText().equals("16384"), "RX buffer sample default failed");
                 AbstractButton testMode = button(window, "Test mode");
                 check(testMode.isEnabled() && testMode.getY() > button(window, "Connect").getY(),
                         "Test mode is not available below Connect while disconnected");
@@ -54,12 +72,12 @@ public final class InspectorWindowDesktopTest {
                 window.setTesting(true);
                 check(!testMode.isEnabled() && !button(window, "Connect").isEnabled()
                                 && !button(window, "Hide settings").isEnabled()
-                                && !labeled(window, "IP address", JTextField.class).isEnabled()
+                                && !labeled(window, "Device URI", JTextField.class).isEnabled()
                                 && !labeled(window, "Min dB", JSpinner.class).isEnabled()
                                 && !labeled(window, "Format", JComboBox.class).isEnabled(),
                         "Inspector controls remain active during test mode");
                 window.setTesting(false);
-                check(testMode.isEnabled() && labeled(window, "IP address", JTextField.class).isEnabled(),
+                check(testMode.isEnabled() && labeled(window, "Device URI", JTextField.class).isEnabled(),
                         "Inspector controls did not recover after test mode");
                 JSpinner waterfallRate = labeled(window, "Lines per second", JSpinner.class);
                 SpinnerNumberModel waterfallModel = (SpinnerNumberModel) waterfallRate.getModel();
@@ -69,23 +87,28 @@ public final class InspectorWindowDesktopTest {
                         "Waterfall settings are not on the right");
                 check(labeled(window, "Format", JComboBox.class).getSelectedItem() == RecordingFormat.CF32,
                         "Default recording format failed");
-                labeled(window, "Tuning (MHz)", JSpinner.class).setValue(137.25);
-                labeled(window, "RF bandwidth", JComboBox.class).setSelectedItem(1_000_000);
-                labeled(window, "Sample rate", JComboBox.class).setSelectedItem(2_000_000);
-                labeled(window, "Decimation", JComboBox.class).setSelectedItem(4);
-                labeled(window, "Manual gain (dB)", JSpinner.class).setValue(55);
-                rxBuffer.setValue(4097);
+                labeled(window, "Tuning frequency (Hz)", JTextField.class).setText("137250000");
+                labeled(window, "RF bandwidth (Hz)", JTextField.class).setText("1000000");
+                labeled(window, "PHY sample rate (Hz)", JTextField.class).setText("4000000");
+                labeled(window, "Software decimation", JComboBox.class).setSelectedItem(8);
+                labeled(window, "RX1 manual gain (dB)", JTextField.class).setText("55");
+                rxBuffer.setText("4097");
                 labeled(window, "Storage folder", JTextField.class).setText(Path.of("target", "inspector-recordings").toAbsolutePath().toString());
                 button(window, "Connect").doClick();
                 check(actions.connections == 1, "Connection action missing");
-                check(actions.connectedSettings.frequencyHz() == 137_250_000, "MHz conversion failed");
+                check(actions.connectedSettings.centerFrequency() == 137_250_000, "Tuning setting failed");
                 check(actions.connectedSettings.effectiveSampleRate() == 500_000, "Decimation settings failed");
-                check(actions.connectedSettings.gain() == 55, "Gain settings failed");
-                check(actions.connectedSettings.rxBufferSamples() == 4097, "RX buffer sample count changed before connection");
-                check(!labeled(window, "IP address", JTextField.class).isEnabled(), "Hardware edits enabled during connection");
+                check(actions.connectedSettings.source().configuration().getDouble("manual_gain1") == 55, "Gain settings failed");
+                check(actions.connectedSettings.source().configuration().getInt("buffer_size") == 4097, "RX buffer sample count changed before connection");
+                check(!labeled(window, "Device URI", JTextField.class).isEnabled(), "Hardware edits enabled during connection");
                 window.setConnection(true, false);
                 check(!testMode.isEnabled(), "Test mode enabled during normal radio reception");
-                check(!labeled(window, "Tuning (MHz)", JSpinner.class).isEnabled(), "Hardware edits enabled while connected");
+                check(labeled(window, "Tuning frequency (Hz)", JTextField.class).isEnabled(), "Runtime tuning edits disabled while connected");
+                check(labeled(window, "RX1 manual gain (dB)", JTextField.class).isEnabled(), "Runtime gain edits disabled while connected");
+                check(!labeled(window, "PHY sample rate (Hz)", JTextField.class).isEnabled(), "Setup edits enabled while connected");
+                check(!labeled(window, "Source", JComboBox.class).isEnabled(), "Source switching enabled while connected");
+                button(window, "Apply source changes").doClick();
+                check(actions.updates == 1, "Runtime source update action missing");
                 check(labeled(window, "Min dB", JSpinner.class).isEnabled(), "FFT edits disabled while connected");
                 labeled(window, "Min dB", JSpinner.class).setValue(-100.0);
                 labeled(window, "Max dB", JSpinner.class).setValue(40.0);
@@ -121,7 +144,7 @@ public final class InspectorWindowDesktopTest {
                 button(window, "Disconnect").doClick();
                 check(actions.disconnections == 1, "Disconnect action missing");
                 window.setConnection(false, false);
-                check(labeled(window, "IP address", JTextField.class).isEnabled(), "Hardware edits did not unlock after disconnect");
+                check(labeled(window, "Device URI", JTextField.class).isEnabled(), "Hardware edits did not unlock after disconnect");
                 button(window, "Connect").doClick();
                 window.setConnection(true, false);
                 button(window, "Hide settings").doClick();
@@ -129,6 +152,10 @@ public final class InspectorWindowDesktopTest {
                 button(window, "Show settings").doClick();
                 check(!window.settings().sidebarCollapsed(), "Sidebar did not expand");
                 window.validate();
+                JTextField uri = labeled(window, "Device URI", JTextField.class);
+                Point uriPosition = SwingUtilities.convertPoint(uri, 0, 0, window);
+                check(uri.getHeight() > 0 && uriPosition.y < 400, "Source property rows collapsed or drifted below the viewport");
+                check(uriPosition.x + uri.getWidth() <= window.getWidth() - 20, "Source property editor clips beyond the sidebar");
                 window.clearPlots();
                 List<SpectrumFrame> rows = syntheticFrames(settings);
                 window.display(rows.get(rows.size() - 1), rows);
@@ -138,14 +165,20 @@ public final class InspectorWindowDesktopTest {
                 try { window.paintAll(graphics); }
                 finally { graphics.dispose(); }
                 capture.set(image);
-                JSpinner frequency = labeled(window, "Tuning (MHz)", JSpinner.class);
-                ((JSpinner.DefaultEditor) frequency.getEditor()).getTextField().setText("unfinished");
+                labeled(window, "Tuning frequency (Hz)", JTextField.class).setText("unfinished");
                 window.dispatchEvent(new WindowEvent(window, WindowEvent.WINDOW_CLOSING));
                 check(actions.closedSettings != null, "Unfinished edit prevented application close");
-                check(actions.closedSettings.frequencyHz() == settings.frequencyHz(), "Close lost the last valid settings");
-                check(actions.closedSettings.rxBufferSamples() == 4097, "Close converted or lost the RX sample count");
+                check(actions.closedSettings.centerFrequency() == settings.centerFrequency(), "Close lost the last valid settings");
+                check(actions.closedSettings.source().configuration().getInt("buffer_size") == 4097, "Close converted or lost the RX sample count");
                 check(actions.closedSettings.waterfallRate() == 15 && actions.closedSettings.storageFormat() == RecordingFormat.CS16,
                         "Close lost waterfall or recording format settings");
+                InspectorWindow unavailable = new InspectorWindow(InspectorSettings.defaults().withSource(new InspectorSourceSettings("unavailable", java.util.Map.of(), 1)),
+                        new FakeActions(), InspectorSources.available());
+                try { check(unavailable.settings().sourceId().equals("fmcomms2"), "Missing saved provider did not fall back to FMComms2"); }
+                finally { unavailable.dispose(); }
+                InspectorWindow noProviders = new InspectorWindow(InspectorSettings.defaults(), new FakeActions(), java.util.Map.of());
+                try { check(!button(noProviders, "Connect").isEnabled(), "Connection enabled without providers"); }
+                finally { noProviders.dispose(); }
             });
             if (args.length > 0) {
                 Path output = Path.of(args[0]).toAbsolutePath();
@@ -208,7 +241,7 @@ public final class InspectorWindowDesktopTest {
 
     private static final class FakeActions implements InspectorWindow.Actions {
         final CountDownLatch fftChanged = new CountDownLatch(1);
-        int connections, disconnections, recordings, stops, tests;
+        int connections, disconnections, recordings, stops, tests, updates;
         InspectorSettings connectedSettings, fftSettings, recordedSettings, closedSettings;
 
         @Override
@@ -223,6 +256,8 @@ public final class InspectorWindowDesktopTest {
         public void stopRecording() { stops++; }
         @Override
         public void changeFft(InspectorSettings settings) { fftSettings = settings; fftChanged.countDown(); }
+        @Override
+        public void updateSource(InspectorSettings settings) { updates++; }
         @Override
         public void close(InspectorSettings settings) { closedSettings = settings; }
     }

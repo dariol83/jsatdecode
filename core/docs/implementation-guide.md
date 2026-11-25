@@ -24,8 +24,10 @@ dependency order:
 | `distribution` | Standalone application packages, launchers and packaged-distribution checks |
 
 Each source and distribution module depends only on API among JSatDecode modules. Core and
-Inspector discover source factories through `ServiceLoader`; Inspector currently
-selects the FMComms2 factory and retains its existing radio settings.
+Inspector discover source factories through `ServiceLoader`; Inspector selects
+and configures providers using their API property descriptors, with FMComms2 as
+the default when available. Live properties use the optional runtime-update
+capability on the management worker.
 `decoder_base` depends on API and jradio 1.121. Mission decoders use API and the
 shared decoder library; their runtime/desktop qualification tests also use core
 and the source providers.

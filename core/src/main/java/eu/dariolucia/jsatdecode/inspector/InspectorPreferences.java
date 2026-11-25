@@ -6,6 +6,8 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.util.Locale;
 import java.util.Properties;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /* Management-thread persistence. A failed/corrupt preferences file cannot prevent startup. */
 final class InspectorPreferences {
@@ -30,7 +32,7 @@ final class InspectorPreferences {
         Properties p = new Properties();
         try (var in = Files.newBufferedReader(file)) {
             p.load(in);
-            return new InspectorSettings(p.getProperty("ip", d.ipAddress()), number(p, "frequency_hz", d.frequencyHz()),
+            InspectorSettings restored = new InspectorSettings(p.getProperty("ip", d.ipAddress()), number(p, "frequency_hz", d.frequencyHz()),
                     integer(p, "bandwidth", d.bandwidth()), integer(p, "sample_rate", d.sampleRate()),
                     integer(p, "decimation", d.decimation()), integer(p, "gain", d.gain()), rxBufferSamples(p, d.rxBufferSamples()),
                     number(p, "min_db", d.minDb()), number(p, "max_db", d.maxDb()),
@@ -40,7 +42,10 @@ final class InspectorPreferences {
                     Path.of(p.getProperty("storage_folder", d.storageFolder().toString())),
                     RecordingFormat.valueOf(p.getProperty("storage_format", d.storageFormat().name())),
                     Boolean.parseBoolean(p.getProperty("sidebar_collapsed", Boolean.toString(d.sidebarCollapsed()))),
-                    integer(p, "width", d.windowWidth()), integer(p, "height", d.windowHeight()));
+                    integer(p, "width", d.windowWidth()), integer(p, "height", d.windowHeight()), source(p));
+            if (!Double.isFinite(restored.effectiveSampleRate()) || restored.effectiveSampleRate() <= 0 || restored.centerFrequency() < 0)
+                throw new IllegalArgumentException("Invalid source sample rate or center frequency");
+            return restored;
         } catch (IOException | RuntimeException e) {
             LOG.log(System.Logger.Level.WARNING, "Cannot restore JSatInspector settings from " + file + "; using defaults", e);
             return d;
@@ -68,6 +73,11 @@ final class InspectorPreferences {
         p.setProperty("sidebar_collapsed", Boolean.toString(s.sidebarCollapsed()));
         p.setProperty("width", Integer.toString(s.windowWidth()));
         p.setProperty("height", Integer.toString(s.windowHeight()));
+        if (s.source() != null) {
+            p.setProperty("source.id", s.source().id());
+            p.setProperty("source.software_decimation", Integer.toString(s.source().softwareDecimation()));
+            s.source().properties().forEach((key, value) -> p.setProperty("source.property." + key, value));
+        }
         Files.createDirectories(file.toAbsolutePath().getParent());
         Path temporary = Files.createTempFile(file.toAbsolutePath().getParent(), "settings-", ".tmp");
         try {
@@ -77,6 +87,15 @@ final class InspectorPreferences {
         } finally {
             Files.deleteIfExists(temporary);
         }
+    }
+
+    private static InspectorSourceSettings source(Properties p) {
+        if (!p.containsKey("source.id")) return null;
+        Map<String, String> values = new LinkedHashMap<>();
+        for (String key : p.stringPropertyNames()) {
+            if (key.startsWith("source.property.")) values.put(key.substring("source.property.".length()), p.getProperty(key));
+        }
+        return new InspectorSourceSettings(p.getProperty("source.id"), values, integer(p, "source.software_decimation", 1));
     }
 
     private static double number(Properties p, String key, double fallback) {

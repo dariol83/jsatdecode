@@ -67,11 +67,11 @@
 ### 5. Expose source configuration properties *only if required*
 
 - First assess whether existing source contracts already allow Inspector to discover/select/configure implementations generically.
-- **Only if insufficient**, introduce the smallest backward-compatible API operation or companion optional capability interface to expose source-specific configuration-property descriptors (e.g., name/type/default/range/allowed values), without adding implementation classes to `api`.
-- Update the descriptor to include which configuration properties can be asked to be updated **at runtime**, i.e. with the source already running. Such update shall be backward-compatible.
-- Update existing source providers and generic configuration consumers to honor these descriptors. Keep all existing configuration files, keys, defaults and CLI behavior valid; no changes to decoders.
-
-Note: JSatDecode application does not require the use of this mechanism. JSatInspector/Inspector will in step 7, since the UI shall allow to select one source to use, and based on the selection, the specific controls for the selected source shall be shown.
+- **Only if insufficient**, introduce the smallest backward-compatible API operation to expose source-specific configuration-property descriptors (e.g., name, description, type, unit, default value, allowed range or allowed list of values, updatable at runtime), without adding implementation classes to `api`. Such update shall be backward-compatible, e.g. add a default method to the SampleSourceFactory interface that, by default, returns a null list i.e. no information.
+- Update the descriptor to include which configuration properties can be updatable **at runtime**, i.e. with the source already running. Such update shall be backward-compatible, e.g. add a default method to the SampleSource interface that can be used to set configuration properties.
+- Update existing source providers (file, fmcomms2) to honor these descriptors in terms of declaration and reaction to runtime update requests for those declared as updatable. Keep all existing configuration files, keys, defaults and CLI behavior valid; no changes to decoders.
+- Update JSatInspector/Inspector UI to allow selecting one source to use among the available ones (use a combo box for that). Based on the selection, the specific configuration items in the panel below for the selected source (now hardcoded to use FMComms2 specific fields) shall be constructed dynamically based on the declared configuration properties and allowed to be edited/updated at runtime and reflected to the source. 
+- If a configuration item is dynamically changeable, the corresponding UI element shall not become disabled upon connected/active source.
 
 **Gate:** Source selection and configuration can be implemented generically; current source behavior/configuration remains unchanged. If unnecessary, record “no API change required.”
 

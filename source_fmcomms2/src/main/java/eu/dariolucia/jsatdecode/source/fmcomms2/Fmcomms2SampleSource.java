@@ -1,6 +1,7 @@
 package eu.dariolucia.jsatdecode.source.fmcomms2;
 
 import eu.dariolucia.jsatdecode.api.config.Configuration;
+import eu.dariolucia.jsatdecode.api.config.ConfigurationException;
 import eu.dariolucia.jsatdecode.api.lifecycle.ComponentState;
 import eu.dariolucia.jsatdecode.api.lifecycle.LifecycleException;
 import eu.dariolucia.jsatdecode.api.monitoring.MonitoringDescriptor;
@@ -29,7 +30,8 @@ import java.util.concurrent.TimeUnit;
  * data. The returned mask must match: other-client union masks are rejected,
  * never silently misinterpreted as IQ. Only Off/File/Keep FIR modes are supported;
  * Auto/Design are AD9361 filter-design algorithms, not IIOD protocol operations.
- * Hardware configuration is setup-only and remains on the device after shutdown.
+ * Hardware configuration remains on the device after shutdown. Explicit runtime
+ * frequency, bandwidth and gain requests use a separate management connection.
  * Explicit fpga_decimation=2/4/8/16 requests the ADC-side sampling_frequency at
  * PHY rate divided by that factor; sample_rate remains the PHY rate. Advertised
  * available rates are checked when present, followed by exact ADC and PHY
@@ -63,11 +65,14 @@ import java.util.concurrent.TimeUnit;
  * filename UTC/identity, AGC gain semantics and playback.
  *
  */
-public final class Fmcomms2SampleSource implements ManagedSampleSource {
+public final class Fmcomms2SampleSource implements ManagedSampleSource, RuntimeConfigurableSampleSource {
     static final SourceDescriptor DESCRIPTOR = new SourceDescriptor("fmcomms2", "FMComms2 / PlutoPlus IIOD network", "1",
             "Pure Java TCP IIOD AD9361 complex IQ source");
     private final Object lifecycle = new Object();
     private final Fmcomms2Settings settings;
+    private Configuration currentConfiguration;
+    private volatile IioContext.Device controlPhy;
+    private volatile IiodClient controlClient;
     private final CountDownLatch completion = new CountDownLatch(1);
     private volatile ComponentState state = ComponentState.CONFIGURED;
     private volatile IiodClient client;
@@ -126,6 +131,7 @@ public final class Fmcomms2SampleSource implements ManagedSampleSource {
     private Fmcomms2SampleSource(Configuration configuration, Clock recordingClock,
                                Cf32Recorder.FileFactory recordingFiles, ReadDiagnostics diagnostics) {
         settings = Fmcomms2Settings.read(configuration);
+        currentConfiguration = configuration;
         rate = settings.sampleRate() / settings.decimation();
         center = settings.frequency();
         this.recordingClock = Objects.requireNonNull(recordingClock);
@@ -204,6 +210,7 @@ public final class Fmcomms2SampleSource implements ManagedSampleSource {
                     return;
                 }
                 device = adc.id();
+                controlPhy = phy;
                 connected = true;
                 worker = new Thread(() -> run(owned, adc.id(), layout), "jsatdecode-source-fmcomms2");
                 state = ComponentState.RUNNING;
@@ -216,6 +223,64 @@ public final class Fmcomms2SampleSource implements ManagedSampleSource {
             finishAcquisition();
             if (failure != null)
                 throw new SourceException("Cannot start FMComms2 source at " + settings.uri() + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Applies validated runtime settings through a separate IIOD connection; the
+     * streaming socket remains exclusively owned by READBUF. Only the selected
+     * RX channel is written. On an I/O failure acquisition fails and is cancelled,
+     * since a multi-attribute hardware request may have been partially applied.
+     * Existing recording filenames continue to describe their starting settings.
+     */
+    @Override
+    public void updateConfiguration(Configuration changes) {
+        Objects.requireNonNull(changes, "changes");
+        if (state != ComponentState.RUNNING || stopRequested)
+            throw new IllegalStateException("Runtime configuration requires a running source");
+        for (String key : changes.asMap().keySet()) {
+            if (!Fmcomms2Properties.RUNTIME_KEYS.contains(key))
+                throw new ConfigurationException("FMComms2 setting is not runtime-updatable: " + key);
+        }
+        Map<String, Object> merged = new LinkedHashMap<>(currentConfiguration.asMap());
+        merged.putAll(changes.asMap());
+        Configuration next = new Configuration(merged);
+        Fmcomms2Settings requested = Fmcomms2Settings.read(next);
+        if (changes.asMap().isEmpty()) return;
+        IiodClient owned = new IiodClient();
+        controlClient = owned;
+        try (owned) {
+            if (stopRequested) throw new IOException("Source stopped during runtime configuration");
+            owned.connect(settings);
+            zero(owned, "TIMEOUT " + settings.serverTimeout());
+            IioContext.Device phy = controlPhy;
+            int rx = settings.receiver();
+            if (changes.asMap().containsKey("frequency")) {
+                String lo = phy.channelAttribute("altvoltage0", true, "frequency");
+                owned.write(lo, Long.toString(requested.frequency()));
+                long readback = owned.readLong(lo);
+                if (readback < 70000000L || readback > 6000000000L)
+                    throw new IOException("Invalid hardware LO frequency readback");
+                center = readback;
+            }
+            if (changes.asMap().containsKey("bandwidth"))
+                owned.write(phy.rxAttribute(rx, "rf_bandwidth"), Integer.toString(requested.bandwidth()));
+            String modeKey = rx == 0 ? "gain1" : "gain2";
+            String gainKey = rx == 0 ? "manual_gain1" : "manual_gain2";
+            if (changes.asMap().containsKey(modeKey))
+                owned.write(phy.rxAttribute(rx, "gain_control_mode"), requested.gainMode());
+            if (requested.gainMode().equals("manual") && (changes.asMap().containsKey(gainKey)
+                    || changes.asMap().containsKey(modeKey)))
+                owned.write(phy.rxAttribute(rx, "hardwaregain"), Double.toString(requested.gain()));
+            if (stopRequested || state != ComponentState.RUNNING)
+                throw new IOException("Source stopped during runtime configuration");
+            currentConfiguration = next;
+        } catch (IOException e) {
+            if (!stopRequested) recordFailure(e);
+            requestStop();
+            throw new SourceException("Cannot update FMComms2 source: " + e.getMessage(), e);
+        } finally {
+            controlClient = null;
         }
     }
 
@@ -403,6 +468,8 @@ public final class Fmcomms2SampleSource implements ManagedSampleSource {
         stopRequested = true;
         IiodClient owned = client;
         if (owned != null) owned.close();
+        IiodClient control = controlClient;
+        if (control != null) control.close();
     }
 
     @Override

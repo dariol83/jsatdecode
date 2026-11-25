@@ -8,6 +8,27 @@ The radio must already expose an IIOD TCP server (normally port 30431).
 The source configures an AD9361-family receive chain and delivers normalized
 complex float32 blocks through the unchanged SampleSource API.
 
+The factory's `configurationProperties()` describes the existing source keys,
+defaults, ranges and choices without opening sockets. `type` is the factory ID
+selected by the consumer rather than an editable property. Frequency, bandwidth,
+`gain1`, `gain2`, `manual_gain1` and `manual_gain2` are runtime-updatable through
+`RuntimeConfigurableSampleSource.updateConfiguration`. Other keys are setup-only.
+An update is a partial unprefixed configuration, called on the management thread
+while RUNNING. All keys and values are validated before a control socket opens.
+Only the enabled receiver's gain attributes are written; inactive receiver gain
+settings are retained for configuration consistency. Manual gain is written when
+manual mode is selected. A separate, short-lived IIOD control connection keeps
+streaming READBUF ownership and sample-clock semantics intact. Frequency readback
+updates `source.center_frequency`.
+
+A hardware/I/O error fails acquisition and closes both connections: an earlier
+attribute in the same request may already have changed. Reconnect to reapply a
+complete configuration. Intentional cancellation also closes a pending control
+request without introducing an acquisition failure. Recording filenames and
+source recorder metadata describe their starting settings; applying a runtime
+edit does not rename or split an existing recording. Without explicit runtime
+requests the source's existing setup and acquisition behavior is unchanged.
+
 ## References and protocol decision
 
 Protocol and hardware references:

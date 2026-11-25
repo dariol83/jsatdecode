@@ -11,7 +11,7 @@ record InspectorSettings(String ipAddress, double frequencyHz, int bandwidth, in
                          int gain, int rxBufferSamples, double minDb, double maxDb, WindowFunction window,
                          double fftRate, int fftSize, int averaging, int waterfallRate,
                          Path storageFolder, RecordingFormat storageFormat, boolean sidebarCollapsed,
-                         int windowWidth, int windowHeight) {
+                         int windowWidth, int windowHeight, InspectorSourceSettings source) {
     private static final Set<Integer> RATES = Set.of(500_000, 1_000_000, 2_000_000, 3_000_000, 4_000_000, 5_000_000);
 
     InspectorSettings {
@@ -41,6 +41,15 @@ record InspectorSettings(String ipAddress, double frequencyHz, int bandwidth, in
         windowHeight = Math.max(600, Math.min(16384, windowHeight));
     }
 
+    InspectorSettings(String ipAddress, double frequencyHz, int bandwidth, int sampleRate, int decimation,
+                      int gain, int rxBufferSamples, double minDb, double maxDb, WindowFunction window,
+                      double fftRate, int fftSize, int averaging, int waterfallRate, Path storageFolder,
+                      RecordingFormat storageFormat, boolean sidebarCollapsed, int windowWidth, int windowHeight) {
+        this(ipAddress, frequencyHz, bandwidth, sampleRate, decimation, gain, rxBufferSamples, minDb, maxDb,
+                window, fftRate, fftSize, averaging, waterfallRate, storageFolder, storageFormat,
+                sidebarCollapsed, windowWidth, windowHeight, null);
+    }
+
     // Existing application-local callers retain the defaults for the added controls.
     InspectorSettings(String ipAddress, double frequencyHz, int bandwidth, int sampleRate, int decimation,
                       int gain, int rxBufferSamples, double minDb, double maxDb, WindowFunction window,
@@ -57,7 +66,29 @@ record InspectorSettings(String ipAddress, double frequencyHz, int bandwidth, in
                 RecordingFormat.CF32, false, 1280, 850);
     }
 
-    int effectiveSampleRate() {
-        return sampleRate / decimation;
+    double effectiveSampleRate() {
+        if (source == null) return sampleRate / (double) decimation;
+        var c = source.configuration();
+        double rate = c.asMap().containsKey("sample_rate") ? c.getDouble("sample_rate") : sampleRate;
+        int hardwareFactor = c.asMap().containsKey("fpga_decimation") ? c.getInt("fpga_decimation") : 1;
+        return rate / hardwareFactor / source.softwareDecimation();
+    }
+
+    double centerFrequency() {
+        if (source == null) return frequencyHz;
+        var c = source.configuration();
+        if (c.asMap().containsKey("center_frequency")) return c.getDouble("center_frequency");
+        if (c.asMap().containsKey("frequency")) return c.getDouble("frequency");
+        return 0;
+    }
+
+    String sourceId() {
+        return source == null ? "fmcomms2" : source.id();
+    }
+
+    InspectorSettings withSource(InspectorSourceSettings selection) {
+        return new InspectorSettings(ipAddress, frequencyHz, bandwidth, sampleRate, decimation, gain,
+                rxBufferSamples, minDb, maxDb, window, fftRate, fftSize, averaging, waterfallRate,
+                storageFolder, storageFormat, sidebarCollapsed, windowWidth, windowHeight, selection);
     }
 }

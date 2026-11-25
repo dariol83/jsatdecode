@@ -3,6 +3,10 @@ package eu.dariolucia.jsatdecode.source.cf32;
 import eu.dariolucia.jsatdecode.api.config.Configuration;
 import eu.dariolucia.jsatdecode.api.source.SampleSourceFactory;
 import eu.dariolucia.jsatdecode.api.source.SourceDescriptor;
+import eu.dariolucia.jsatdecode.api.source.SourcePropertyDescriptor;
+import eu.dariolucia.jsatdecode.source.file.FileSourceProperties;
+
+import java.util.List;
 
 /**
  * Java-SE-only CF32 factory, discoverable with ServiceLoader.
@@ -24,6 +28,11 @@ public final class Cf32SourceFactory implements SampleSourceFactory {
     @Override
     public SourceDescriptor descriptor() {
         return DESCRIPTOR;
+    }
+
+    @Override
+    public List<SourcePropertyDescriptor> configurationProperties() {
+        return FileSourceProperties.descriptors(false);
     }
 
     /**

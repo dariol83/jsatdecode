@@ -1,6 +1,10 @@
 package eu.dariolucia.jsatdecode.inspector;
 
 import eu.dariolucia.jsatdecode.dsp.fft.WindowFunction;
+import eu.dariolucia.jsatdecode.api.source.DiagnosticSampleSourceFactory;
+import eu.dariolucia.jsatdecode.api.source.SampleSourceFactory;
+import eu.dariolucia.jsatdecode.api.source.SourceDescriptor;
+import eu.dariolucia.jsatdecode.api.source.SourcePropertyDescriptor;
 import eu.dariolucia.jsatdecode.ui.ApplicationIcon;
 import eu.dariolucia.jsatdecode.ui.swing.SpectrumFrame;
 import eu.dariolucia.jsatdecode.ui.swing.SpectrumPanel;
@@ -17,6 +21,8 @@ import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Map;
+import java.util.LinkedHashMap;
 
 /* EDT-owned application view. Actions only hand requests to the controller. */
 final class InspectorWindow extends JFrame {
@@ -27,17 +33,20 @@ final class InspectorWindow extends JFrame {
         void startRecording(InspectorSettings settings);
         void stopRecording();
         void changeFft(InspectorSettings settings);
+        default void updateSource(InspectorSettings settings) { }
         void close(InspectorSettings settings);
     }
 
     private final Actions actions;
-    private final JTextField ipAddress;
-    private final JSpinner frequencyMHz;
-    private final JComboBox<Integer> bandwidth;
-    private final JComboBox<Integer> sampleRate;
-    private final JComboBox<Integer> decimation;
-    private final JSpinner gain;
-    private final JSpinner rxBuffer;
+    private final Map<String, SampleSourceFactory> sourceFactories;
+    private final Map<String, InspectorSourceSettings> sourceDrafts = new LinkedHashMap<>();
+    private final JComboBox<SourceDescriptor> sourceSelector = new JComboBox<>();
+    private final JComboBox<Integer> decimation = new JComboBox<>(new Integer[]{1, 2, 4, 8, 16, 32, 64});
+    private final JPanel sourcePropertiesContainer = new JPanel(new BorderLayout());
+    private final JButton applySource = new JButton("Apply source changes");
+    private final InspectorSourceSettings legacySelection;
+    private SourceConfigurationPanel sourceProperties;
+    private String selectedSourceId;
     private final JSpinner minimumDb;
     private final JSpinner maximumDb;
     private final JComboBox<WindowFunction> window;
@@ -55,7 +64,6 @@ final class InspectorWindow extends JFrame {
     private final JLabel effectiveRate = new JLabel();
     private final JLabel status = new JLabel("Disconnected");
     private final JPanel sidebarContainer = new JPanel(new BorderLayout());
-    private final List<JComponent> hardwareControls = new ArrayList<>();
     private final List<JComponent> fftControls = new ArrayList<>();
     private final SpectrumPanel spectrum;
     private final WaterfallPanel waterfall = new WaterfallPanel();
@@ -69,25 +77,39 @@ final class InspectorWindow extends JFrame {
     private boolean closing;
     private boolean collecting;
     private boolean testing;
+    private boolean sourceUpdating;
     private int sidebarWidth = 325;
     private volatile int columns = 2048;
 
     InspectorWindow(InspectorSettings initial, Actions actions) {
+        this(initial, actions, InspectorSources.available());
+    }
+
+    InspectorWindow(InspectorSettings initial, Actions actions, Map<String, SampleSourceFactory> factories) {
         super("JSatInspector");
         requireEdt();
         ApplicationIcon.INSPECTOR.applyTo(this);
         this.actions = Objects.requireNonNull(actions);
         lastValidSettings = Objects.requireNonNull(initial);
-        ipAddress = new JTextField(initial.ipAddress(), 13);
-        frequencyMHz = decimalSpinner(initial.frequencyHz() / 1_000_000, 70, 6000, 0.001, "0.000000");
-        bandwidth = rates(initial.bandwidth(), false);
-        sampleRate = rates(initial.sampleRate(), true);
-        decimation = new JComboBox<>(new Integer[]{1, 2, 4, 8});
-        decimation.setSelectedItem(initial.decimation());
-        decimation.setToolTipText("Software decimation after acquisition; the effective sample rate is the SDR sample rate divided by this factor.");
-        gain = integerSpinner(initial.gain(), 1, 70, 1);
-        rxBuffer = integerSpinner(initial.rxBufferSamples(), 1, 1_048_576, 1024);
-        rxBuffer.setToolTipText("Receive buffer size in complex samples; one sample is an I/Q pair.");
+        sourceFactories = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(factories));
+        InspectorSourceSettings selection = InspectorSources.selection(initial);
+        legacySelection = initial.source() == null ? selection : null;
+        sourceFactories.values().forEach(factory -> sourceSelector.addItem(factory.descriptor()));
+        sourceSelector.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object item, int index, boolean selected, boolean focused) {
+                return super.getListCellRendererComponent(list, item instanceof SourceDescriptor descriptor ? descriptor.name() : item,
+                        index, selected, focused);
+            }
+        });
+        sourceSelector.setMinimumSize(new Dimension(40, sourceSelector.getPreferredSize().height));
+        String initialId = sourceFactories.containsKey(selection.id()) ? selection.id()
+                : sourceFactories.containsKey("fmcomms2") ? "fmcomms2" : sourceFactories.keySet().stream().findFirst().orElse(null);
+        if (initialId != null) {
+            sourceSelector.setSelectedItem(sourceFactories.get(initialId).descriptor());
+            showSource(initialId, initialId.equals(selection.id()) ? selection : new InspectorSourceSettings(initialId, Map.of(), 1));
+        }
+        decimation.setToolTipText("Software decimation after acquisition; source hardware decimation is configured separately.");
         minimumDb = decimalSpinner(initial.minDb(), -1000, 1000, 5, "0.0");
         maximumDb = decimalSpinner(initial.maxDb(), -1000, 1000, 5, "0.0");
         window = new JComboBox<>(WindowFunction.values());
@@ -107,7 +129,7 @@ final class InspectorWindow extends JFrame {
         storageFormat.setToolTipText("Little-endian interleaved IQ: CF32 float32 or CS16 signed 16-bit samples.");
         spectrum = new SpectrumPanel("Spectrum", new SpectrumSettings(initial.fftSize(), initial.window(),
                 initial.fftRate(), initial.fftRate(), 1, initial.minDb(), initial.maxDb(), 4096,
-                initial.frequencyHz()), value -> columns = Math.max(1, Math.min(4096, value)));
+                initial.centerFrequency()), value -> columns = Math.max(1, Math.min(4096, value)));
         ToolTipManager.sharedInstance().registerComponent(spectrum);
         fftChanges = new Timer(180, event -> applyFftChanges());
         fftChanges.setRepeats(false);
@@ -117,7 +139,7 @@ final class InspectorWindow extends JFrame {
         setSize(initial.windowWidth(), initial.windowHeight());
         setLocationByPlatform(true);
 
-        JPanel controls = new JPanel();
+        JPanel controls = new SettingsPanel();
         controls.setLayout(new BoxLayout(controls, BoxLayout.Y_AXIS));
         controls.setBorder(new EmptyBorder(4, 4, 4, 4));
         controls.add(sdrGroup());
@@ -150,7 +172,7 @@ final class InspectorWindow extends JFrame {
 
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEADING, 6, 4));
         sidebarToggle.setSelected(!initial.sidebarCollapsed());
-        sidebarToggle.setToolTipText("Show or hide PlutoPlus, FFT, waterfall and storage settings.");
+        sidebarToggle.setToolTipText("Show or hide source, FFT, waterfall and storage settings.");
         sidebarToggle.addActionListener(event -> updateSidebar());
         toolbar.add(sidebarToggle);
         JLabel information = new JLabel("Spectrum and IQ recorder");
@@ -167,8 +189,12 @@ final class InspectorWindow extends JFrame {
         testMode.addActionListener(event -> testRequested());
         recording.addActionListener(event -> recordingRequested());
         browse.addActionListener(event -> chooseFolder());
-        sampleRate.addActionListener(event -> updateEffectiveRate());
+        sourceSelector.addActionListener(event -> sourceChanged());
         decimation.addActionListener(event -> updateEffectiveRate());
+        applySource.addActionListener(event -> {
+            try { actions.updateSource(settings()); }
+            catch (IllegalArgumentException e) { inputError(e); }
+        });
         for (JComponent component : fftControls) {
             if (component instanceof JSpinner spinner) spinner.addChangeListener(event -> scheduleFftChange());
             else if (component instanceof JComboBox<?> combo) combo.addActionListener(event -> scheduleFftChange());
@@ -183,27 +209,29 @@ final class InspectorWindow extends JFrame {
         updateEffectiveRate();
         applyRanges(initial);
         updateEnabled();
+        if (initialId != null && !initialId.equals(selection.id()))
+            setStatus("Source " + selection.id() + " is unavailable; selected " + initialId);
     }
 
     InspectorSettings settings() {
         requireEdt();
         collecting = true;
         try {
-            commit(frequencyMHz, "tuning frequency");
-            commit(gain, "gain");
-            commit(rxBuffer, "RX buffer size");
             commit(minimumDb, "minimum dB");
             commit(maximumDb, "maximum dB");
             commit(fftRate, "FFT rate");
             commit(waterfallRate, "waterfall rate");
             String folder = storageFolder.getText().strip();
             if (folder.isEmpty()) throw new IllegalArgumentException("Choose a storage folder");
-            InspectorSettings result = new InspectorSettings(ipAddress.getText(), number(frequencyMHz) * 1_000_000,
-                    selected(bandwidth), selected(sampleRate), selected(decimation), integer(gain), integer(rxBuffer),
+            if (sourceProperties != null) sourceProperties.validateValues();
+            InspectorSettings v = lastValidSettings;
+            InspectorSourceSettings selection = sourceSettings();
+            InspectorSettings result = new InspectorSettings(v.ipAddress(), v.frequencyHz(),
+                    v.bandwidth(), v.sampleRate(), v.decimation(), v.gain(), v.rxBufferSamples(),
                     number(minimumDb), number(maximumDb), (WindowFunction) window.getSelectedItem(), number(fftRate),
                     selected(fftSize), averaging.getSelectedIndex(), integer(waterfallRate), Path.of(folder),
                     (RecordingFormat) storageFormat.getSelectedItem(), !sidebarToggle.isSelected(),
-                    getWidth(), getHeight());
+                    getWidth(), getHeight(), selection.equals(legacySelection) ? null : selection);
             lastValidSettings = result;
             return result;
         } finally {
@@ -261,20 +289,50 @@ final class InspectorWindow extends JFrame {
     }
 
     private JPanel sdrGroup() {
-        JPanel panel = group("PlutoPlus SDR settings");
-        row(panel, 0, "IP address", ipAddress);
-        row(panel, 1, "Tuning (MHz)", frequencyMHz);
-        row(panel, 2, "RF bandwidth", bandwidth);
-        row(panel, 3, "Sample rate", sampleRate);
-        row(panel, 4, "Decimation", decimation);
-        row(panel, 5, "Manual gain (dB)", gain);
-        row(panel, 6, "RX buffer (samples)", rxBuffer);
+        JPanel panel = group("Source settings");
+        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+        row(panel, 0, "Source", sourceSelector);
+        row(panel, 1, "Software decimation", decimation);
         effectiveRate.setBorder(new EmptyBorder(3, 0, 3, 0));
-        fullRow(panel, 7, effectiveRate);
-        fullRow(panel, 8, connection);
-        fullRow(panel, 9, testMode);
-        hardwareControls.addAll(List.of(ipAddress, frequencyMHz, bandwidth, sampleRate, decimation, gain, rxBuffer));
+        fullRow(panel, 2, effectiveRate);
+        fullRow(panel, 3, connection);
+        fullRow(panel, 4, applySource);
+        fullRow(panel, 5, testMode);
+        fullRow(panel, 6, sourcePropertiesContainer);
         return panel;
+    }
+
+    void setSourceUpdating(boolean value) {
+        requireEdt();
+        sourceUpdating = value;
+        updateEnabled();
+    }
+
+    private InspectorSourceSettings sourceSettings() {
+        if (selectedSourceId == null) throw new IllegalArgumentException("No sample source is available");
+        return new InspectorSourceSettings(selectedSourceId, sourceProperties.values(), selected(decimation));
+    }
+
+    private void sourceChanged() {
+        if (selectedSourceId != null) sourceDrafts.put(selectedSourceId, sourceSettings());
+        SourceDescriptor selected = (SourceDescriptor) sourceSelector.getSelectedItem();
+        if (selected == null) return;
+        showSource(selected.id(), sourceDrafts.getOrDefault(selected.id(), new InspectorSourceSettings(selected.id(), Map.of(), 1)));
+        updateEffectiveRate();
+        updateEnabled();
+    }
+
+    private void showSource(String id, InspectorSourceSettings selection) {
+        selectedSourceId = id;
+        SampleSourceFactory factory = sourceFactories.get(id);
+        sourceProperties = new SourceConfigurationPanel(factory.configurationProperties(), selection.properties());
+        sourceProperties.onChange(this::updateEffectiveRate);
+        sourcePropertiesContainer.removeAll();
+        sourcePropertiesContainer.add(sourceProperties, BorderLayout.CENTER);
+        decimation.setSelectedItem(selection.softwareDecimation());
+        testMode.setVisible(id.equals("fmcomms2") && factory instanceof DiagnosticSampleSourceFactory);
+        sourcePropertiesContainer.revalidate();
+        sourcePropertiesContainer.repaint();
     }
 
     private JPanel fftGroup() {
@@ -361,7 +419,7 @@ final class InspectorWindow extends JFrame {
             saved = new InspectorSettings(v.ipAddress(), v.frequencyHz(), v.bandwidth(), v.sampleRate(),
                     v.decimation(), v.gain(), v.rxBufferSamples(), v.minDb(), v.maxDb(), v.window(), v.fftRate(),
                     v.fftSize(), v.averaging(), v.waterfallRate(), v.storageFolder(), v.storageFormat(),
-                    !sidebarToggle.isSelected(), getWidth(), getHeight());
+                    !sidebarToggle.isSelected(), getWidth(), getHeight(), v.source());
         }
         closing = true;
         fftChanges.stop();
@@ -406,10 +464,15 @@ final class InspectorWindow extends JFrame {
 
     private void updateEnabled() {
         boolean hardwareEnabled = !connected && !connectionBusy && !closing && !testing;
-        for (JComponent component : hardwareControls) component.setEnabled(hardwareEnabled);
+        sourceSelector.setEnabled(hardwareEnabled);
+        decimation.setEnabled(hardwareEnabled);
+        if (sourceProperties != null) sourceProperties.updateEnabled(connected, connectionBusy || sourceUpdating || closing || testing);
         for (JComponent component : fftControls) component.setEnabled(!closing && !testing);
-        connection.setEnabled(!connectionBusy && !closing && !testing);
-        testMode.setEnabled(hardwareEnabled && !recordingBusy && !storing);
+        connection.setEnabled(selectedSourceId != null && !connectionBusy && !closing && !testing);
+        testMode.setEnabled(testMode.isVisible() && hardwareEnabled && !recordingBusy && !storing);
+        boolean live = selectedSourceId != null && sourceFactories.get(selectedSourceId).configurationProperties().stream()
+                .anyMatch(SourcePropertyDescriptor::runtimeUpdatable);
+        applySource.setEnabled(live && connected && !connectionBusy && !sourceUpdating && !closing && !testing);
         recording.setEnabled(connected && !connectionBusy && !recordingBusy && !closing && !testing);
         boolean folderEnabled = !storing && !recordingBusy && !closing && !testing;
         storageFolder.setEnabled(folderEnabled);
@@ -419,9 +482,17 @@ final class InspectorWindow extends JFrame {
     }
 
     private void updateEffectiveRate() {
-        int rate = selected(sampleRate) / selected(decimation);
-        effectiveRate.setText("Effective sample rate: " + rateLabel(rate, true));
-        effectiveRate.setToolTipText("Spectrum and recording sample rate after software decimation; plotted span " + rateLabel(rate, false) + ".");
+        if (selectedSourceId == null) { effectiveRate.setText("No sample sources available"); return; }
+        try {
+            Map<String, String> values = sourceProperties.values();
+            String rateValue = values.get("sample_rate");
+            if (rateValue == null) rateValue = sourceFactories.get(selectedSourceId).configurationProperties().stream()
+                    .filter(p -> p.name().equals("sample_rate")).map(p -> p.defaultValue() == null ? "" : p.defaultValue()).findFirst().orElse("");
+            if (rateValue.isBlank()) { effectiveRate.setText("Sample rate: from source"); return; }
+            double rate = Double.parseDouble(rateValue) / Integer.parseInt(values.getOrDefault("fpga_decimation", "1")) / selected(decimation);
+            effectiveRate.setText("Effective sample rate: " + rateLabel(rate, true));
+            effectiveRate.setToolTipText("Spectrum and recording sample rate after software decimation; plotted span " + rateLabel(rate, false) + ".");
+        } catch (IllegalArgumentException e) { effectiveRate.setText("Enter a valid source sample rate"); }
     }
 
     private void updateSidebar() {
@@ -490,20 +561,7 @@ final class InspectorWindow extends JFrame {
         return result;
     }
 
-    private static JComboBox<Integer> rates(int value, boolean samples) {
-        JComboBox<Integer> result = new JComboBox<>(new Integer[]{500_000, 1_000_000, 2_000_000, 3_000_000, 4_000_000, 5_000_000});
-        result.setRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(JList<?> list, Object item, int index, boolean selected, boolean focused) {
-                return super.getListCellRendererComponent(list, item instanceof Integer rate ? rateLabel(rate, samples) : item,
-                        index, selected, focused);
-            }
-        });
-        result.setSelectedItem(value);
-        return result;
-    }
-
-    private static String rateLabel(int rate, boolean samples) {
+    private static String rateLabel(double rate, boolean samples) {
         boolean mega = rate >= 1_000_000;
         return BigDecimal.valueOf(rate).movePointLeft(mega ? 6 : 3).stripTrailingZeros().toPlainString()
                 + (mega ? samples ? " Msps" : " MHz" : samples ? " ksps" : " kHz");
@@ -531,5 +589,14 @@ final class InspectorWindow extends JFrame {
 
     private static void requireEdt() {
         if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Inspector window requires the Swing EDT");
+    }
+
+    /** Long provider names and choices must fit the sidebar instead of clipping controls. */
+    private static final class SettingsPanel extends JPanel implements Scrollable {
+        @Override public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+        @Override public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) { return 18; }
+        @Override public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) { return Math.max(18, visible.height - 18); }
+        @Override public boolean getScrollableTracksViewportWidth() { return true; }
+        @Override public boolean getScrollableTracksViewportHeight() { return false; }
     }
 }

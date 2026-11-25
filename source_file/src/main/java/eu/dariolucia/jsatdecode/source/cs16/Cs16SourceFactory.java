@@ -3,6 +3,10 @@ package eu.dariolucia.jsatdecode.source.cs16;
 import eu.dariolucia.jsatdecode.api.config.Configuration;
 import eu.dariolucia.jsatdecode.api.source.SampleSourceFactory;
 import eu.dariolucia.jsatdecode.api.source.SourceDescriptor;
+import eu.dariolucia.jsatdecode.api.source.SourcePropertyDescriptor;
+import eu.dariolucia.jsatdecode.source.file.FileSourceProperties;
+
+import java.util.List;
 
 /**
  * Java-SE-only CS16 factory, discoverable with ServiceLoader.
@@ -26,6 +30,11 @@ public final class Cs16SourceFactory implements SampleSourceFactory {
     @Override
     public SourceDescriptor descriptor() {
         return DESCRIPTOR;
+    }
+
+    @Override
+    public List<SourcePropertyDescriptor> configurationProperties() {
+        return FileSourceProperties.descriptors(false);
     }
 
     /**

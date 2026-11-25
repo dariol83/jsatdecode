@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Standalone PlutoPlus spectrum analyser and CF32/CS16 recorder. No decoder, decoder
+ * Standalone source spectrum analyser and CF32/CS16 recorder. No decoder, decoder
  * runtime, distributor or monitoring UI is constructed. Lifecycle and storage
  * operations run on a management worker; Swing is confined to the EDT.
  */
@@ -30,7 +30,7 @@ public final class JSatInspector {
      */
     public static void main(String[] args) {
         if (Arrays.asList(args).contains("--help") || Arrays.asList(args).contains("-h")) {
-            System.out.println("JSatInspector - PlutoPlus spectrum analyser and CF32/CS16 signal saver\n"
+            System.out.println("JSatInspector - spectrum analyser and CF32/CS16 signal saver\n"
                     + "Usage: jsatinspector.sh [--help] (Windows: jsatinspector.bat [--help])\n"
                     + "       java -jar jsatdecoder.jar --inspector [--help]\n"
                     + "Settings: %APPDATA%/JSatInspector/settings.properties or ~/.jsatinspector/settings.properties\n"
@@ -90,7 +90,7 @@ public final class JSatInspector {
         public void connect(InspectorSettings requested) {
             settings = requested;
             window.setConnection(false, true);
-            window.setStatus("Connecting to " + requested.ipAddress() + "...");
+            window.setStatus("Connecting to " + requested.sourceId() + "...");
             window.clearPlots();
             displayed = null;
             submit(() -> {
@@ -100,14 +100,16 @@ public final class JSatInspector {
                         analysis = next;
                         next.updateSettings(settings);
                     }
-                    next.start();
                     receiver = new InspectorReceiver(requested, next::accept);
+                    if (requested.source() != null) next.sourceMetadata(receiver.sampleRate(), receiver.centerFrequency());
+                    next.start();
                     receiver.start();
+                    if (requested.source() != null) next.sourceMetadata(receiver.sampleRate(), receiver.centerFrequency());
                     reportedRecordingFailure = null;
+                    double rate = receiver.sampleRate();
                     onEdt(() -> {
                         window.setConnection(true, false);
-                        window.setStatus("Connected | " + requested.effectiveSampleRate() + " samples/s | "
-                                + requested.effectiveSampleRate() + " Hz span");
+                        window.setStatus("Connected to " + requested.sourceId() + " | " + rate + " samples/s");
                     });
                 } catch (Exception e) {
                     stopSession();
@@ -136,7 +138,11 @@ public final class JSatInspector {
         public void testMode(InspectorSettings requested) {
             if (closing.get() || activeTest != null || receiver != null) return;
             settings = requested;
-            DropSampleTest test = new DropSampleTest(requested.ipAddress());
+            var sourceConfiguration = InspectorReceiver.sourceConfiguration(requested);
+            String uri = sourceConfiguration.asMap().containsKey("uri") ? sourceConfiguration.getString("uri")
+                    : InspectorSources.factory(requested.sourceId()).configurationProperties().stream()
+                    .filter(property -> property.name().equals("uri")).findFirst().orElseThrow().defaultValue();
+            DropSampleTest test = new DropSampleTest(uri.startsWith("ip:") ? uri.substring(3) : uri);
             activeTest = test;
             AtomicBoolean cancelled = new AtomicBoolean();
             AtomicReference<DropSampleTest.Progress> progress = new AtomicReference<>();
@@ -225,10 +231,32 @@ public final class JSatInspector {
         @Override
         public void changeFft(InspectorSettings requested) {
             synchronized (analysisSettings) {
-                settings = requested;
+                InspectorReceiver current = receiver;
+                settings = current == null ? requested : requested.withSource(current.settings().source());
                 InspectorAnalysis active = analysis;
-                if (active != null) active.updateSettings(requested);
+                if (active != null) active.updateSettings(settings);
             }
+        }
+
+        @Override
+        public void updateSource(InspectorSettings requested) {
+            window.setSourceUpdating(true);
+            window.setStatus("Updating source settings...");
+            submit(() -> {
+                try {
+                    InspectorReceiver current = receiver;
+                    if (current == null) throw new IllegalStateException("Connect before updating source settings");
+                    current.updateSource(requested);
+                    synchronized (analysisSettings) {
+                        // Keep FFT edits made while the hardware request was in progress.
+                        settings = settings.withSource(requested.source());
+                        if (analysis != null) analysis.updateSettings(settings);
+                        if (analysis != null) analysis.sourceMetadata(current.sampleRate(), current.centerFrequency());
+                    }
+                    onEdt(() -> window.setStatus("Source settings updated"));
+                } catch (Exception e) { error("Cannot update source settings", e); }
+                finally { onEdt(() -> window.setSourceUpdating(false)); }
+            });
         }
 
         @Override
@@ -274,11 +302,14 @@ public final class JSatInspector {
                 receiver.pollDiagnostics();
                 Throwable failure = receiver.failure();
                 if (failure != null || !receiver.running()) {
+                    InspectorReceiver completed = receiver;
                     stopSession();
-                    error("Reception stopped", failure == null ? new IllegalStateException("Source stopped unexpectedly") : failure);
+                    if (failure != null) error("Reception stopped", failure);
+                    else if (completed.recordingFailure() != null) error("Recording incomplete", completed.recordingFailure());
                     onEdt(() -> {
                         window.setConnection(false, false);
                         window.setRecording(false, false);
+                        if (failure == null && completed.recordingFailure() == null) window.setStatus("Source completed");
                     });
                     return;
                 }

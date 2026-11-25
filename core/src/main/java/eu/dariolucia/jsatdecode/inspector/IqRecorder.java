@@ -46,11 +46,11 @@ final class IqRecorder implements AutoCloseable {
     private volatile long head, tail, consumedMemoryBytes, acceptedMemoryBytes, acceptedBytes, writtenBytes;
     private volatile boolean ended, complete;
 
-    static IqRecorder start(Path folder, double centerHz, int sampleRate, int gain, int blockSamples) throws IOException {
+    static IqRecorder start(Path folder, double centerHz, double sampleRate, double gain, int blockSamples) throws IOException {
         return start(folder, centerHz, sampleRate, gain, blockSamples, RecordingFormat.CF32);
     }
 
-    static IqRecorder start(Path folder, double centerHz, int sampleRate, int gain, int blockSamples,
+    static IqRecorder start(Path folder, double centerHz, double sampleRate, double gain, int blockSamples,
                             RecordingFormat format) throws IOException {
         int slots = Math.max(2, Math.min(65536, (64 * 1024 * 1024) / Math.multiplyExact(blockSamples, 8)));
         return new IqRecorder(folder, centerHz, sampleRate, gain, Instant.now(), format, slots,
@@ -59,19 +59,22 @@ final class IqRecorder implements AutoCloseable {
     }
 
     // Package-private injection keeps partial writes, bounded queues and disk faults testable.
-    IqRecorder(Path folder, double centerHz, int sampleRate, int gain, Instant started,
+    IqRecorder(Path folder, double centerHz, double sampleRate, double gain, Instant started,
                int slots, long capacityBytes, int writeBytes, FileFactory files) throws IOException {
         this(folder, centerHz, sampleRate, gain, started, RecordingFormat.CF32, slots, capacityBytes, writeBytes, files);
     }
 
-    IqRecorder(Path folder, double centerHz, int sampleRate, int gain, Instant started, RecordingFormat format,
+    IqRecorder(Path folder, double centerHz, double sampleRate, double gain, Instant started, RecordingFormat format,
                int slots, long capacityBytes, int writeBytes, FileFactory files) throws IOException {
         this.format = Objects.requireNonNull(format);
         int sampleBytes = format.bytesPerComplexSample();
-        if (!Double.isFinite(centerHz) || centerHz <= 0 || sampleRate <= 0 || slots < 1 || capacityBytes < 8 ||
+        if (!Double.isFinite(centerHz) || centerHz < 0 || !Double.isFinite(sampleRate) || sampleRate <= 0
+                || !Double.isFinite(gain) || slots < 1 || capacityBytes < 8 ||
                 writeBytes < sampleBytes || writeBytes % sampleBytes != 0) throw new IllegalArgumentException("Invalid recorder configuration");
         String center = BigDecimal.valueOf(centerHz).stripTrailingZeros().toPlainString();
-        file = Objects.requireNonNull(folder).resolve(center + "_" + sampleRate + "_" + gain + "_" + UTC.format(started) + format.extension());
+        String rate = BigDecimal.valueOf(sampleRate).stripTrailingZeros().toPlainString();
+        String gainText = BigDecimal.valueOf(gain).stripTrailingZeros().toPlainString();
+        file = Objects.requireNonNull(folder).resolve(center + "_" + rate + "_" + gainText + "_" + UTC.format(started) + format.extension());
         this.capacityBytes = capacityBytes;
         queue = new ComplexSampleBlock[slots];
         bytes = ByteBuffer.allocateDirect(writeBytes).order(ByteOrder.LITTLE_ENDIAN);

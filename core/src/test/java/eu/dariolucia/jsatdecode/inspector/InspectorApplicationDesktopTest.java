@@ -63,9 +63,10 @@ public final class InspectorApplicationDesktopTest {
         check(Files.isRegularFile(settingsFile), "Application did not save preferences");
         Properties saved = new Properties();
         try (var in = Files.newBufferedReader(settingsFile)) { saved.load(in); }
-        check(Double.parseDouble(saved.getProperty("frequency_hz")) == 146_250_000, "Tuning frequency was not saved");
-        check(saved.getProperty("gain").equals("57"), "Gain was not saved");
-        check(saved.getProperty("rx_buffer_samples").equals("65535") && !saved.containsKey("rx_buffer_bytes"),
+        check(saved.getProperty("source.id").equals("fmcomms2"), "Source selection was not saved");
+        check(Double.parseDouble(saved.getProperty("source.property.frequency")) == 146_250_000, "Tuning frequency was not saved");
+        check(saved.getProperty("source.property.manual_gain1").equals("57"), "Gain was not saved");
+        check(saved.getProperty("source.property.buffer_size").equals("65535") && !saved.containsKey("rx_buffer_bytes"),
                 "RX buffer was not saved as samples after migrating legacy bytes");
         check(saved.getProperty("fft_size").equals("32768"), "FFT settings were not saved");
         check(saved.getProperty("waterfall_rate").equals("12"), "Waterfall rate was not saved");
@@ -105,9 +106,9 @@ public final class InspectorApplicationDesktopTest {
                 AbstractButton connect = button(window, "Connect");
                 check(connect.isEnabled() && !connect.isSelected(), "Application did not start disconnected");
                 check(!button(window, "Start storage").isEnabled(), "Storage enabled before connecting");
-                labeled(window, "Tuning (MHz)", JSpinner.class).setValue(146.25);
-                labeled(window, "Manual gain (dB)", JSpinner.class).setValue(57);
-                labeled(window, "RX buffer (samples)", JSpinner.class).setValue(65535);
+                labeled(window, "Tuning frequency (Hz)", JTextField.class).setText("146250000");
+                labeled(window, "RX1 manual gain (dB)", JTextField.class).setText("57");
+                labeled(window, "RX buffer (samples)", JTextField.class).setText("65535");
                 labeled(window, "Samples", JComboBox.class).setSelectedItem(32768);
                 labeled(window, "Lines per second", JSpinner.class).setValue(12);
                 labeled(window, "Format", JComboBox.class).setSelectedItem(RecordingFormat.CF32);

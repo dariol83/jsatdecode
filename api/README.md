@@ -15,8 +15,22 @@ dependency on core. See [Java modules](../core/docs/java-modules.md).
 Sources may implement `ManagedSampleSource` for nonblocking cancellation and
 failure reporting. A factory may also implement `DiagnosticSampleSourceFactory`
 for a bounded, count-only read diagnostic. These capabilities let Inspector use
-the FMComms2 provider through the source service while retaining its current
-radio configuration and diagnostic behavior.
+source providers through the source service while retaining diagnostic behavior.
+
+`SampleSourceFactory.configurationProperties()` optionally returns ordered
+`SourcePropertyDescriptor` values: the existing unprefixed key, label, type, unit,
+default, required flag, inclusive bounds, choices and runtime-update capability.
+The default method returns an empty list for older providers. Descriptors are
+metadata for editors; factory parsers still validate complete configurations,
+conditional settings and hardware limits. No defaults are injected into CLI
+configurations. The identity-only `SourceDescriptor` contract is unchanged.
+
+Sources advertising live properties implement `RuntimeConfigurableSampleSource`.
+Its `updateConfiguration(Configuration)` accepts only changed, advertised keys
+on a running source, retaining omitted values. Owners serialize updates with
+lifecycle calls on a management thread. Validation precedes I/O; implementations
+document recovery from partially applied hardware requests. Inspector uses the
+same contracts for source selection, configuration and live updates.
 
 Distribution providers can register a `DistributionConfigurationNormalizer` to
 validate shared aliases before components are created. A monitoring output can

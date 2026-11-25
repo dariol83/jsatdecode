@@ -1,7 +1,8 @@
 # JSatInspector
 
 JSatInspector is a standalone Swing spectrum analyser and complex-IQ recorder
-for a PlutoPlus exposing the existing IIOD TCP interface. Application code lives
+for discovered sample-source providers, including PlutoPlus IIOD and WAV/CF32/CS16
+recordings. Application code lives
 in `eu.dariolucia.jsatdecode.inspector` in core. It constructs no decoder,
 decoder runtime, distributor or JSatDecode monitoring session.
 
@@ -25,29 +26,43 @@ Use `:` as the classpath separator on Linux/macOS. JSatInspector is packaged in
 the same JAR as JSatDecode. Use `--inspector` to select it; appending `--help`
 works without a display. No additional native libraries are needed.
 
-The collapsible right sidebar groups radio, FFT, waterfall and storage controls.
+The collapsible right sidebar groups source, FFT, waterfall and storage controls.
 The left side contains a spectrum and a horizontally aligned waterfall,
 separated by a resizable divider. The Waterfall settings group sets its drawing rate.
-Hardware settings are editable while disconnected. FFT window type, rate, size,
+Select a source while disconnected. Its advertised configuration properties
+appear with provider-specific types, choices and help text (including defaults
+and ranges). Edits are retained when switching sources within the window.
+FMComms2 is the default when installed; otherwise the first available provider
+is selected. A missing saved provider is reported and falls back to an available
+one. No connection is offered when no source providers are installed.
+
+Setup-only settings and source selection are locked while connected. Advertised
+runtime properties remain editable; **Apply source changes** submits them on the
+management worker. FMComms2 supports live tuning frequency, RF bandwidth and gain;
+file-source settings require reconnecting. Invalid requests are reported without
+restarting the source. Hardware failures follow the provider's failure semantics.
+FFT window type, rate, size,
 relative-dB range, averaging and waterfall drawing rate change while receiving.
 Storage can be started/stopped independently of reception. Disconnect and window
 close finish accepted recording data before releasing their workers.
 
 ## Radio and sample rates
 
-Frequency is entered as floating-point MHz; the shared adapter tunes integer Hz,
-so sub-Hz input is rounded and reported in the console. RF bandwidth and selected
-sample rate each offer 500 k, 1 M, 2 M, 3 M, 4 M and 5 M. Gain is manual, 1..70 dB.
-The RX buffer is in **complex samples** (one I/Q pair), defaults to 16384 and
-accepts 1..1048576 samples. Its count passes directly to the source's
-`buffer_size`.
-The IP field accepts a hostname/IP, optionally with `:port`; bracket IPv6 addresses.
+FMComms2 uses its existing unprefixed source settings: tuning frequency in integer
+Hz, bandwidth and PHY sample rate in Hz, gain mode and manual gain, RX channel,
+FIR options, buffer sizes, timeouts and optional source-owned recording. The URI
+is `ip:host[:port]`; bracket IPv6 addresses. Its full descriptor ranges match
+the [source parser](fmcomms2-source.md). Inspector retains its initial 137.1 MHz,
+3 Msps PHY, 2 MHz RF bandwidth, RX1 manual gain 40 dB, FIR Off and 16384 complex
+sample RX buffer. Source/CLI defaults remain unchanged.
 
 The adapter's existing FIR-Off mode requires a PHY rate of at least 2.084 MHz.
-Inspector acquires the 500 ksps, 1 Msps and 2 Msps selections at a 4 Msps PHY rate
-and applies software division by 8, 4 or 2 respectively. The other selections use
-their chosen PHY rate. The additional user-selected decimation factor is 1, 2, 4
-or 8. Both divisions use stateful cascaded 63-tap Blackman half-band filters;
+Legacy Inspector preferences for 500 ksps, 1 Msps and 2 Msps still acquire at
+4 Msps and apply software division by 8, 4 or 2, including the former additional
+decimation factor. The editor displays that equivalent PHY configuration and
+total software factor. New configurations set PHY rate and optional hardware
+FPGA decimation directly; Inspector software decimation offers 1, 2, 4, 8, 16,
+32 and 64. Software division uses stateful cascaded 63-tap Blackman half-band filters;
 there is no unfiltered sample dropping. FIR state and decimation phase survive
 source block boundaries. Startup is causal with zero initial filter history;
 the signal has the filters' group delay.
@@ -55,20 +70,26 @@ the signal has the filters' group delay.
 The effective complex sample rate and full plotted frequency span are:
 
 ```text
-effective sample rate = selected sample rate / decimation factor
+effective sample rate = source output sample rate / software decimation factor
 frequency axis = tuning frequency - effective rate/2 ... tuning frequency + effective rate/2
 ```
 
 The analog RF bandwidth is independently configured and can exceed the effective
 digital passband. The effective rate appears in the controls and recording name.
-Inspector deliberately uses software filtering to support all requested choices
-independently of firmware-specific FPGA division capabilities. The shared source
-implementation and its explicit FPGA-decimation contract are unchanged.
+For example, PHY 4 MHz with FPGA factor 1 and software factor 8 yields 500 ksps.
+Explicit FPGA division still requires supporting firmware; software division
+works independently of it.
+
+File sources show file path, sample rate, segment limits, repeat, real-time pacing,
+block capacity and center-frequency metadata. CF32/CS16 require a sample rate;
+WAV uses the header unless an explicit matching rate is supplied. Inspector uses
+the source's actual output rate and center metadata for analysis and recording.
+Nonrepeating files complete normally and unlock source selection for the next run.
 
 ## PlutoPlus test mode
 
-While disconnected, select **Test mode** below Connect to run sample-delivery
-tests against the configured IP address. The progress dialog is modal, shows
+With FMComms2 selected and disconnected, select **Test mode** below Connect to run
+sample-delivery tests against the configured device URI. The progress dialog is modal, shows
 the current parameters and phase, and provides Cancel. Other Inspector controls
 are disabled until acquisition has stopped. Test samples are discarded; they
 never reach the FFT, waterfall or a recording file. Normal Inspector settings
@@ -170,6 +191,9 @@ The remaining filename pattern is the same for both formats. The actual LO
 readback comes from the existing source's monitoring data. Directories are
 created as needed and `CREATE_NEW` protects existing files, including recordings
 started in the same second with the same metadata and format.
+Unknown file-source center frequency and gain use zero; fractional source rates
+and gains retain decimal values in filenames. Runtime edits do not split or
+rename an active recording, whose filename describes its starting settings.
 
 Recording retains immutable float sample-block references in a bounded SPSC queue
 (up to 64 MiB of retained float IQ and 65536 references), independently of the
@@ -203,20 +227,25 @@ lines per second), sidebar visibility and window dimensions are stored in
 `%APPDATA%/JSatInspector/settings.properties` on Windows, or
 `~/.jsatinspector/settings.properties` elsewhere (also the Windows fallback when
 APPDATA is unavailable). Writes replace the file atomically where supported.
-The RX buffer is saved as `rx_buffer_samples`. Older preferences containing only
+Selected generic source settings use `source.id`, `source.software_decimation`
+and `source.property.<existing key>`. Existing preferences without these keys
+retain their previous FMComms2 behavior and defaults. Legacy fields remain valid.
+The legacy RX buffer is saved as `rx_buffer_samples`. Older preferences containing only
 `rx_buffer_bytes` are converted by dividing by four, preserving their receive
 capacity; the sample-based key takes precedence when both keys exist.
 Missing/invalid files restore defaults with a console diagnostic. Startup always
 leaves connection and recording off. The JVM shutdown hook also joins acquisition
 and storage and saves the last submitted valid settings on orderly termination.
 
-Maven runs `InspectorSettingsTest`, `InspectorReceiverTest`, `IqRecorderTest`
+Maven runs `SourceConfigurationTest`, `InspectorSettingsTest`, `InspectorReceiverTest`, `IqRecorderTest`
 and `InspectorAnalysisTest`, alongside all existing core suites. They cover
 preferences, all rate/decimation combinations, streaming anti-alias filtering,
 real loopback IIOD recording in both formats, exact binary data, bounded overload/disk
 faults, concurrent stop/drain, maximum FFTs, averaging, cadence and Java2D rendering.
 `InspectorWindowDesktopTest` is an opt-in desktop layout/control check; it uses
 synthetic spectra and stub actions without connecting to a radio.
+It also checks source switching, preserved drafts and runtime versus setup control
+availability. Provider integration tests cover live IIOD updates with a local peer.
 `InspectorApplicationDesktopTest` additionally verifies the actual launch/exit
 and preferences lifecycle in a child JVM with isolated home/AppData directories.
 Run `mvn -pl core -am verify` from the repository root for automated Inspector checks.

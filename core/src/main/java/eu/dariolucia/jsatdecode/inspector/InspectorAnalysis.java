@@ -26,6 +26,8 @@ final class InspectorAnalysis implements AutoCloseable {
     private volatile InspectorSettings requested;
     private volatile Input input;
     private volatile SpectrumFrame latest;
+    private volatile double sourceCenter = Double.NaN;
+    private double configuredCenter = Double.NaN;
     private volatile boolean running;
     private boolean closed;
     private Thread worker;
@@ -61,6 +63,7 @@ final class InspectorAnalysis implements AutoCloseable {
        Exactly one externally synchronized source thread may call accept. */
     void accept(ComplexSampleBlock block) {
         Input target = input;
+        if (target.ring.sampleRate() != block.sampleRate()) input = target = new Input(block.sampleRate());
         int count = Math.min(block.complexSamples(), MAX_SAMPLES);
         if (count == 0) return;
         int begin = block.complexSamples() - count;
@@ -80,11 +83,22 @@ final class InspectorAnalysis implements AutoCloseable {
     void updateSettings(InspectorSettings settings) {
         Objects.requireNonNull(settings);
         InspectorSettings previous = requested;
-        if (previous.effectiveSampleRate() != settings.effectiveSampleRate() || previous.frequencyHz() != settings.frequencyHz())
-            input = new Input(settings.effectiveSampleRate());
+        if (previous.effectiveSampleRate() != settings.effectiveSampleRate() || previous.centerFrequency() != settings.centerFrequency())
+            input = new Input(Double.isFinite(sourceCenter) ? input.ring.sampleRate() : settings.effectiveSampleRate());
         requested = settings;
         Thread current = worker;
         if (current != null) LockSupport.unpark(current);
+    }
+
+    void sourceMetadata(double sampleRate, double centerFrequency) {
+        if (input.ring.sampleRate() != sampleRate || center() != centerFrequency) input = new Input(sampleRate);
+        sourceCenter = centerFrequency;
+        Thread current = worker;
+        if (current != null) LockSupport.unpark(current);
+    }
+
+    private double center() {
+        return Double.isFinite(sourceCenter) ? sourceCenter : requested.centerFrequency();
     }
 
     void setColumns(int value) {
@@ -129,7 +143,7 @@ final class InspectorAnalysis implements AutoCloseable {
                 InspectorSettings settings = requested;
                 Input current = input;
                 long now = System.nanoTime();
-                if (!sameAnalysis(configured, settings) || observed != current) {
+                if (!sameAnalysis(configured, settings) || observed != current || configuredCenter != center()) {
                     configure(settings, current, now);
                     nextSpectrum = now;
                 } else {
@@ -178,6 +192,7 @@ final class InspectorAnalysis implements AutoCloseable {
 
     private void configure(InspectorSettings settings, Input current, long now) {
         configured = settings;
+        configuredCenter = center();
         observed = current;
         spectrumSettings = displaySettings(settings);
         fft = new ComplexFft(settings.fftSize());
@@ -210,7 +225,7 @@ final class InspectorAnalysis implements AutoCloseable {
                 reduced = new double[width];
                 Spectrum.reduceMaximum(power, reduced);
                 analyzedFrame = new SpectrumFrame("RF spectrum", SpectrumFrame.State.READY, spectrumSettings, current.ring.sampleRate(),
-                        settings.frequencyHz(), true, analyzedFrame.timestampNanos(), reduced);
+                        center(), true, analyzedFrame.timestampNanos(), reduced);
             }
             return;
         }
@@ -248,24 +263,24 @@ final class InspectorAnalysis implements AutoCloseable {
         if (reduced == null || reduced.length != width) reduced = new double[width];
         Spectrum.reduceMaximum(power, reduced);
         analyzedFrame = new SpectrumFrame("RF spectrum", SpectrumFrame.State.READY, spectrumSettings, current.ring.sampleRate(),
-                settings.frequencyHz(), true, timestamp, reduced);
+                center(), true, timestamp, reduced);
         analyzedSamples = available;
     }
 
     private static boolean sameAnalysis(InspectorSettings a, InspectorSettings b) {
         return a != null && a.fftSize() == b.fftSize() && a.window() == b.window() && a.averaging() == b.averaging() &&
-                a.minDb() == b.minDb() && a.maxDb() == b.maxDb() && a.frequencyHz() == b.frequencyHz() &&
+                a.minDb() == b.minDb() && a.maxDb() == b.maxDb() && a.centerFrequency() == b.centerFrequency() &&
                 a.effectiveSampleRate() == b.effectiveSampleRate();
     }
 
-    private static SpectrumSettings displaySettings(InspectorSettings settings) {
+    private SpectrumSettings displaySettings(InspectorSettings settings) {
         return new SpectrumSettings(settings.fftSize(), settings.window(), settings.fftRate(), settings.fftRate(),
-                1, settings.minDb(), settings.maxDb(), MAX_COLUMNS, settings.frequencyHz());
+                1, settings.minDb(), settings.maxDb(), MAX_COLUMNS, center());
     }
 
-    private static SpectrumFrame empty(InspectorSettings settings, SpectrumFrame.State state) {
-        return new SpectrumFrame("RF spectrum", state, displaySettings(settings), settings.effectiveSampleRate(),
-                settings.frequencyHz(), true, 0, new double[0]);
+    private SpectrumFrame empty(InspectorSettings settings, SpectrumFrame.State state) {
+        return new SpectrumFrame("RF spectrum", state, displaySettings(settings), input.ring.sampleRate(),
+                center(), true, 0, new double[0]);
     }
 
     private static final class Input {
