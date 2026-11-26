@@ -55,7 +55,8 @@ does not migrate them.
 The pool's `toComplexSampleBlock` boundary intentionally constructs independent
 legacy storage, including the legacy constructor's defensive copy. Other copies
 remain where transformations, independent snapshots, or existing contracts
-require them. No asynchronous consumer currently receives a pooled lease.
+require them. At Step 1 no asynchronous consumer received a pooled lease; see
+[Step 2 evidence](iq-memory-step2.md) for the subsequent migration.
 
 ## Commands and raw evidence
 
@@ -248,18 +249,21 @@ Set `$kind` to `baseline` or `candidate`; each workspace must first have been
 built and its JSatDecode archive extracted by the deployment checks. The same
 module path, heap flags and harness classes were used for the reference and
 detailed captures. Choose fresh output filenames; the harnesses reject existing
-output files. For the original JFR capture, add the indicated JFR and GC flags.
+output files. Compile the harnesses from the corresponding archived workspace:
+later steps can extend their copies for newer optional APIs. For the original
+JFR capture, add the indicated JFR and GC flags.
 
 ```powershell
 $javaHome = 'C:\Users\dario\.jdks\openjdk-25.0.2'
 $bundle = (Resolve-Path 'regression\iq-memory-step1-evidence\mission-replay').Path
 $classes = Join-Path $bundle 'classes'
 $kind = 'baseline'
+$workspace = (Resolve-Path "target\iq-memory-step1-20261126\$kind").Path
 $root = Get-ChildItem "target\iq-memory-step1-20261126\$kind\deployment\target\deployment-smoke-test" -Directory | Where-Object { $_.Name -like 'jsatdecoder package*' }
 $lib = Join-Path $root.FullName 'jsatdecode-0.1.0-SNAPSHOT\lib'
 $modules = 'eu.dariolucia.jsatdecode.decoder.hinode,eu.dariolucia.jsatdecode.decoder.elektrol.ggak,eu.dariolucia.jsatdecode.source.file,eu.dariolucia.jsatdecode.core'
-& "$javaHome\bin\javac.exe" --module-path $lib --add-modules $modules -d $classes regression\HinodeBaselineReplay.java regression\ElektroBaselineReplay.java regression\IqMissionMetadataReplay.java
-& "$javaHome\bin\javac.exe" --module-path $lib --add-modules $modules -cp $classes -d $classes regression\IqMissionWarmBenchmark.java
+& "$javaHome\bin\javac.exe" --module-path $lib --add-modules $modules -d $classes "$workspace\regression\HinodeBaselineReplay.java" "$workspace\regression\ElektroBaselineReplay.java" "$workspace\regression\IqMissionMetadataReplay.java"
+& "$javaHome\bin\javac.exe" --module-path $lib --add-modules $modules -cp $classes -d $classes "$workspace\regression\IqMissionWarmBenchmark.java"
 $hinode = 'C:\Users\dario\temp\Mullberg28092026\Hinode_90secs.wav'
 $ggak = 'C:\Users\dario\temp\Recordings\GGAK_1Msps_2026-11-09_19-05-52_1000000SPS_1693000000Hz.cs16'
 $jfr = "-XX:StartFlightRecording=filename=$bundle\example.jfr,settings=profile,dumponexit=true"

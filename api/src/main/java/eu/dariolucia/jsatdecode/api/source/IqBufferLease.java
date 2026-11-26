@@ -1,6 +1,7 @@
 package eu.dariolucia.jsatdecode.api.source;
 
 import java.util.Objects;
+import java.util.function.Consumer;
 
 /**
  * A single closeable ownership claim on pooled interleaved I/Q storage.
@@ -28,6 +29,7 @@ public final class IqBufferLease implements AutoCloseable {
     private final IqBufferPool pool;
     private IqBufferPool.Buffer buffer;
     private boolean published;
+    private boolean writingScope;
     private int offset, length;
 
     IqBufferLease(IqBufferPool pool, IqBufferPool.Buffer buffer) {
@@ -108,6 +110,36 @@ public final class IqBufferLease implements AutoCloseable {
     }
 
     /**
+     * Runs a synchronous exclusive writer without taking the pool lock for
+     * each sample. The supplied access is valid only on the calling thread and
+     * only until the callback returns. Publishing, closing or opening another
+     * writer while the callback is active fails. Callback failures leave the
+     * lease open and writable for the owner to close or retry.
+     *
+     * @param action synchronous writer
+     * @throws NullPointerException if action is null
+     * @throws IllegalStateException if this lease is published, closed, or has
+     *         an active writer
+     */
+    public void withWriteAccess(Consumer<? super IqWriteAccess> action) {
+        Objects.requireNonNull(action, "action");
+        WriteAccess access;
+        synchronized (pool.lock) {
+            IqBufferPool.Buffer current = requireWritable();
+            access = new WriteAccess(current);
+            writingScope = true;
+        }
+        try {
+            action.accept(access);
+        } finally {
+            synchronized (pool.lock) {
+                access.active = false;
+                writingScope = false;
+            }
+        }
+    }
+
+    /**
      * Publishes a valid window and relinquishes write access on this same
      * lease. The caller must have initialized every sample in the window. A
      * failed validation leaves the lease writable. Publication does not create
@@ -143,6 +175,34 @@ public final class IqBufferLease implements AutoCloseable {
             IqBufferLease retained = new IqBufferLease(pool, current, offset, length);
             pool.retained(current);
             return retained;
+        }
+    }
+
+    /**
+     * Runs a synchronous reader without taking the pool lock for each sample.
+     * A temporary ownership claim keeps the storage alive even if this lease
+     * is concurrently closed. The access is valid only on the calling thread
+     * until the callback returns and cannot expose the backing array.
+     *
+     * @param action synchronous reader
+     * @throws NullPointerException if action is null
+     * @throws IllegalStateException if this lease is writable or closed
+     */
+    public void withReadAccess(Consumer<? super IqReadAccess> action) {
+        Objects.requireNonNull(action, "action");
+        ReadAccess access;
+        synchronized (pool.lock) {
+            IqBufferPool.Buffer current = requirePublished();
+            access = new ReadAccess(current, offset, length);
+            pool.retained(current);
+        }
+        try {
+            action.accept(access);
+        } finally {
+            synchronized (pool.lock) {
+                access.active = false;
+                pool.release(access.buffer);
+            }
         }
     }
 
@@ -219,7 +279,7 @@ public final class IqBufferLease implements AutoCloseable {
             IqBufferPool.Buffer current = requirePublished();
             float[] copy = new float[length * 2];
             current.copyTo(copy, offset, length);
-            return new ComplexSampleBlock(copy, length, sampleIndex, timestampNanos, sampleRate);
+            return ComplexSampleBlock.fromOwnedCopy(copy, length, sampleIndex, timestampNanos, sampleRate);
         }
     }
 
@@ -236,6 +296,7 @@ public final class IqBufferLease implements AutoCloseable {
                 pool.invalidRelease();
                 throw new IllegalStateException("Lease is already closed");
             }
+            if (writingScope) throw new IllegalStateException("A writer is active");
             IqBufferPool.Buffer current = buffer;
             buffer = null;
             pool.release(current);
@@ -250,6 +311,7 @@ public final class IqBufferLease implements AutoCloseable {
     private IqBufferPool.Buffer requireWritable() {
         IqBufferPool.Buffer current = requireOpen();
         if (published) throw new IllegalStateException("Lease is read-only");
+        if (writingScope) throw new IllegalStateException("A writer is active");
         return current;
     }
 
@@ -257,5 +319,37 @@ public final class IqBufferLease implements AutoCloseable {
         IqBufferPool.Buffer current = requireOpen();
         if (!published) throw new IllegalStateException("Lease is not published");
         return current;
+    }
+
+    private abstract static class ScopedAccess {
+        final IqBufferPool.Buffer buffer;
+        private final Thread owner = Thread.currentThread();
+        volatile boolean active = true;
+
+        ScopedAccess(IqBufferPool.Buffer buffer) { this.buffer = buffer; }
+        final void check() {
+            if (!active || Thread.currentThread() != owner) throw new IllegalStateException("Access scope is not active on this thread");
+        }
+    }
+
+    private static final class WriteAccess extends ScopedAccess implements IqWriteAccess {
+        WriteAccess(IqBufferPool.Buffer buffer) { super(buffer); }
+        @Override public int capacity() { check(); return buffer.capacity(); }
+        @Override public void put(int index, float i, float q) {
+            check();
+            buffer.put(Objects.checkIndex(index, buffer.capacity()), i, q);
+        }
+    }
+
+    private static final class ReadAccess extends ScopedAccess implements IqReadAccess {
+        private final int offset, length;
+        ReadAccess(IqBufferPool.Buffer buffer, int offset, int length) {
+            super(buffer);
+            this.offset = offset;
+            this.length = length;
+        }
+        @Override public int complexSamples() { check(); return length; }
+        @Override public float i(int index) { check(); return buffer.i(offset + Objects.checkIndex(index, length)); }
+        @Override public float q(int index) { check(); return buffer.q(offset + Objects.checkIndex(index, length)); }
     }
 }

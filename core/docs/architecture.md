@@ -106,6 +106,14 @@ loops. Sample rate is positive and finite; sample count and absolute stream
 index are nonnegative. Zero-length blocks are valid. `ComplexSnapshot` owns its
 data permanently.
 
+File and FMComms2 sources also provide `LeasedSampleSource`. A published block
+is borrowed synchronously and may be read through a thread-confined scoped view.
+An asynchronous consumer retains its own claim before enqueueing and closes it
+after its final read, including on rejection or failure. Pool shutdown does not
+invalidate retained claims. Legacy sources, sinks and decoders continue to use
+the independently owned `ComplexSampleBlock` boundary. See the
+[API ownership guide](../../api/README.md#opt-in-iq-buffer-ownership).
+
 `AnnotatedFrame` copies its payload on construction and access, and compares
 payloads by content. Maps/lists are recursively snapshotted for configuration,
 annotations, observations and events. Supported leaves are strings, primitive
@@ -261,7 +269,9 @@ Runtime inserts a synchronous rotator only for nonzero
 `source.output_frequency_offset`, consuming that setting before source-factory
 validation. Rotation uses each block's output sample rate, preserves phase and
 timing metadata, and retains immutable ownership. Primitive scratch is bounded
-by the largest source block. Source-owned IQ recording precedes translation.
+by the largest source block on the legacy path; leased translation uses a
+separate bounded pool and leaves the input untouched. Zero offset forwards the
+same leased block. Source-owned IQ recording precedes translation.
 See [runtime](runtime.md) for signs and replay semantics.
 
 Bounded `AsyncOutput` mailboxes isolate synthetic consumers. A nonwaiting
@@ -357,8 +367,9 @@ Startup checks advertised capabilities and exact ADC/PHY readback; missing
 support fails without software decimation or fallback. See
 [FMComms2 source](fmcomms2-source.md).
 
-Optional CF32 recording retains immutable block references in a bounded
-source-owned queue. One writer serializes IQ through direct-buffer batches.
+Optional CF32 recording retains independent read-only claims in a bounded
+source-owned queue. One writer serializes IQ through direct-buffer batches and
+releases each claim after its final read; failure cleanup releases queued claims.
 The producer performs no recording serialization or filesystem work. Source
 completion includes writer finalization. `STOP_RECORDING` isolates storage
 failures; `FAIL_SESSION` cancels acquisition. Runtime maps configuration-file

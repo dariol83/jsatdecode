@@ -3,8 +3,7 @@ package eu.dariolucia.jsatdecode.api.source;
 import java.util.Optional;
 
 /**
- * An opt-in, bounded pool of interleaved float32 I/Q storage. This pool is not
- * used by existing sources, decoders or recorders. A successful acquisition
+ * An opt-in, bounded pool of interleaved float32 I/Q storage. A successful acquisition
  * owns one exclusive writable lease; publication makes it read-only, and each
  * asynchronous owner must retain and later close its own lease.
  *

@@ -22,7 +22,7 @@ public final class Fmcomms2SourceTest {
      * @throws Exception on failed assertions or socket operations
      */
     public static void main(String[] args) throws Exception {
-        configuration(); conversion(); streaming(); readDiagnostics(); decimation(); fileFilter(); failures(); cancellation(); throughput();
+        configuration(); conversion(); streaming(); leasedStreaming(); leasedRecovery(); readDiagnostics(); decimation(); fileFilter(); failures(); cancellation(); throughput();
         Cf32RecordingTest.run();
         System.out.println("FMComms2 source: "+checks+" checks passed");
     }
@@ -67,8 +67,81 @@ public final class Fmcomms2SourceTest {
         check(layout.mask().equals("000000000000000c"),"Mask is sorted channel number, padded multiword, not scan index/XML order");
         float[] iq=new float[2]; layout.convert(big,0,1,iq);
         check(iq[0]==-1f&&iq[1]==2047/2048f,"RX2 I/Q demultiplexing");
+        try (IqBufferPool pool = new IqBufferPool(8); IqBufferLease lease = pool.tryAcquire(1).orElseThrow()) {
+            lease.withWriteAccess(access -> layout.convert(big, 0, 1, access));
+            lease.publish(0, 1);
+            check(Float.floatToRawIntBits(lease.i(0)) == Float.floatToRawIntBits(iq[0])
+                    && Float.floatToRawIntBits(lease.q(0)) == Float.floatToRawIntBits(iq[1]),
+                    "Leased RX2 big-endian shifted conversion matches legacy bits");
+        }
         var external=IioContext.parse(xml.replace("<!DOCTYPE context []>","<!DOCTYPE context SYSTEM 'file:///nonexistent-fmcomms2.dtd'>").getBytes(StandardCharsets.UTF_8));
         check(external.device("ad9361-phy")!=null,"No external DTD fetch");
+    }
+    private static void leasedStreaming() throws Exception {
+        try(Server server=new Server(xml("le:S12/16>>0",0),(s,request,turn)->{
+            byte[] data=turn==0?new byte[]{1,0,2,0,3,0,4,0,5,0,6,0,7,0,8,0}:new byte[]{(byte)0xff,(byte)0xff,0,(byte)0xf8};
+            if(turn==0) {
+                s.send("8\n"+s.mask+"\n"); s.fragment(Arrays.copyOfRange(data,0,8));
+                s.send("8\n"); s.fragment(Arrays.copyOfRange(data,8,16));
+            } else { s.send("4\n"+s.mask+"\n"); s.fragment(data); s.send("0\n"); }
+        }); var source=new Fmcomms2SourceFactory().create(config(server.port()))) {
+            List<LeasedSampleBlock> retained = new ArrayList<>();
+            source.setLeasedSampleSink(block -> {
+                retained.add(block.retain());
+                if (block.sampleIndex() + block.complexSamples() == 5) source.requestStop();
+            });
+            try {
+                source.start();
+                check(source.awaitCompletion(Duration.ofSeconds(5)), "Leased IIOD stream completes");
+                source.stop();
+                check(source.failure().isEmpty() && retained.size() == 3, "Leased IIOD blocks survive source completion");
+                var stats = source.leasedStatistics().orElseThrow();
+                check(stats.deliveredBlocks() == 3 && stats.pool().closed() && stats.pool().outstandingLeases() == 3,
+                        "Leased IIOD source accounts for retained blocks and closes its pool");
+                float[] expected = {1/2048f, 2/2048f, 3/2048f, 4/2048f, 5/2048f, 6/2048f,
+                        7/2048f, 8/2048f, -1/2048f, -1f};
+                int[] index = {0};
+                for (LeasedSampleBlock block : retained) block.withView(view -> {
+                    for (int n = 0; n < view.complexSamples(); n++) {
+                        check(Float.floatToRawIntBits(view.i(n)) == Float.floatToRawIntBits(expected[index[0]++])
+                                && Float.floatToRawIntBits(view.q(n)) == Float.floatToRawIntBits(expected[index[0]++]),
+                                "Leased IIOD sample bytes match expected channel order");
+                    }
+                });
+            } finally { retained.forEach(LeasedSampleBlock::close); }
+            check(source.leasedStatistics().orElseThrow().pool().outstandingLeases() == 0, "Leased IIOD pool drains");
+        }
+    }
+    private static void leasedRecovery() throws Exception {
+        AtomicReference<LeasedSampleBlock> held = new AtomicReference<>();
+        try (Server server = new Server(xml("le:S12/16>>0", 0), (s, n, turn) -> {
+            s.send(n + "\n" + s.mask + "\n");
+            if (turn == 0) s.fragment(new byte[n]);
+            else { s.fragment(new byte[]{1}); s.connection.close(); }
+        }); var source = new Fmcomms2SourceFactory().create(config(server.port()))) {
+            source.setLeasedSampleSink(block -> {
+                if (held.get() == null) held.set(block.retain());
+            });
+            source.start();
+            check(source.awaitCompletion(Duration.ofSeconds(5)), "Disconnected leased stream completes with failure");
+            source.stop();
+            try {
+                check(source.failure().isPresent() && source.leasedStatistics().orElseThrow().pool().outstandingLeases() == 1,
+                        "Disconnect preserves the independently retained block");
+                held.get().withView(view -> check(view.complexSamples() == 2 && view.i(0) == 0, "Retained samples survive disconnect"));
+            } finally { if (held.get() != null) held.get().close(); }
+            check(source.leasedStatistics().orElseThrow().pool().outstandingLeases() == 0, "Disconnected source pool drains");
+        }
+        try (Server server = new Server(xml("le:S12/16>>0", 0), (s, n, turn) -> {
+            s.send(n + "\n" + s.mask + "\n"); s.fragment(new byte[n]);
+        }); var source = new Fmcomms2SourceFactory().create(config(server.port()))) {
+            source.setLeasedSampleSink(block -> source.requestStop());
+            source.start();
+            check(source.awaitCompletion(Duration.ofSeconds(5)), "A new source reconnects after the disconnect");
+            source.stop();
+            check(source.failure().isEmpty() && source.leasedStatistics().orElseThrow().pool().outstandingLeases() == 0,
+                    "Reconnected acquisition stops and releases its pool cleanly");
+        }
     }
     private static void readDiagnostics() throws Exception {
         for (int capacity : new int[] {0, -1}) {
@@ -262,7 +335,7 @@ public final class Fmcomms2SourceTest {
         } finally { Files.delete(filter); }
     }
     private static void failures() throws Exception {
-        for(int mode=0;mode<5;mode++) {
+        for(boolean leased : new boolean[]{false, true}) for(int mode=0;mode<5;mode++) {
             final int scenario=mode;
             try(Server server=new Server(xml("le:S12/16>>0",0),(s,n,t)->{
                 switch(scenario) {
@@ -274,10 +347,13 @@ public final class Fmcomms2SourceTest {
                     default -> throw new AssertionError();
                 }
             }); var source=new Fmcomms2SourceFactory().create(config(server.port(),"server_timeout_ms",100,"read_timeout_ms",200))) {
-                source.setSampleSink(block->{throw new AssertionError("Invalid protocol data delivered");}); source.start();
+                if (leased) source.setLeasedSampleSink(block -> { throw new AssertionError("Invalid protocol data delivered"); });
+                else source.setSampleSink(block->{throw new AssertionError("Invalid protocol data delivered");});
+                source.start();
                 check(source.awaitCompletion(Duration.ofSeconds(5)),"Protocol/read failure terminates"); source.stop();
                 check(source.state()==ComponentState.FAILED&&source.failure().isPresent(),"Failure retained");
                 if(mode==0) check(source.monitoringSnapshot().values().get("source.reported_overruns").equals(1L),"Reported EOVERFLOW counted");
+                if (leased) check(source.leasedStatistics().orElseThrow().pool().outstandingLeases() == 0, "Failed leased acquisition drains its pool");
                 source.close(); check(source.failure().isPresent(),"Failure survives close");
             }
         }
@@ -303,6 +379,14 @@ public final class Fmcomms2SourceTest {
             source.setSampleSink(block->{throw new IllegalStateException("Deliberate sink failure");}); source.start();
             check(source.awaitCompletion(Duration.ofSeconds(5)),"Sink failure terminates");
             check(source.failure().orElseThrow().getMessage().equals("Deliberate sink failure"),"Sink diagnostic retained");
+        }
+        try(Server server=new Server(xml("le:S12/16>>0",0),(s,n,t)->{s.send(n+"\n"+s.mask+"\n");s.fragment(new byte[n]);});
+            var source=new Fmcomms2SourceFactory().create(config(server.port()))) {
+            source.setLeasedSampleSink(block -> { throw new IllegalStateException("Deliberate leased sink failure"); });
+            source.start();
+            check(source.awaitCompletion(Duration.ofSeconds(5)), "Leased sink failure terminates");
+            check(source.failure().orElseThrow().getMessage().equals("Deliberate leased sink failure"), "Leased sink diagnostic retained");
+            check(source.leasedStatistics().orElseThrow().pool().outstandingLeases() == 0, "Leased sink failure releases acquisition buffer");
         }
         String withAdcRate=xml("le:S12/16>>0",0).replace("<scan-element index='0'", "<attribute name='sampling_frequency'/><scan-element index='0'");
         try(Server server=new Server(withAdcRate,(s,n,t)->{s.send(n+"\n"+s.mask+"\n");s.fragment(new byte[n]);});

@@ -5,6 +5,9 @@ import eu.dariolucia.jsatdecode.api.config.ConfigurationException;
 import eu.dariolucia.jsatdecode.api.distribution.OutputException;
 import eu.dariolucia.jsatdecode.api.lifecycle.ComponentState;
 import eu.dariolucia.jsatdecode.api.source.ComplexSampleBlock;
+import eu.dariolucia.jsatdecode.api.source.IqBufferLease;
+import eu.dariolucia.jsatdecode.api.source.IqBufferPool;
+import eu.dariolucia.jsatdecode.api.source.LeasedSampleBlock;
 import eu.dariolucia.jsatdecode.api.source.SourceException;
 import eu.dariolucia.jsatdecode.core.config.ConfigurationLoader;
 import eu.dariolucia.jsatdecode.core.runtime.JSatDecodeRuntime;
@@ -35,6 +38,7 @@ final class Cf32RecordingTest {
         try {
             settings(dir);
             partialWrites(dir);
+            leasedRecording(dir);
             wraparound(dir);
             overflow(dir);
             storageFaults(dir);
@@ -42,6 +46,7 @@ final class Cf32RecordingTest {
             capture(dir);
             decimatedRx2(dir);
             runtimeIdentity(dir);
+            runtimeTranslationRecording(dir);
             sourceFailures(dir);
             delayedDrain(dir);
             cancellation(dir);
@@ -109,6 +114,46 @@ final class Cf32RecordingTest {
 
     private static ComplexSampleBlock block(float... values) {
         return new ComplexSampleBlock(values, values.length / 2, 0, 0, 500000);
+    }
+
+    private static LeasedSampleBlock leasedBlock(IqBufferPool pool, float... values) {
+        try (IqBufferLease lease = pool.tryAcquire(values.length / 2).orElseThrow()) {
+            lease.putInterleaved(values, 0, 0, values.length / 2);
+            lease.publish(0, values.length / 2);
+            return LeasedSampleBlock.from(lease, 0, 0, 500_000);
+        }
+    }
+
+    private static void leasedRecording(Path dir) throws Exception {
+        float[] values = {1, -1, -0f, Float.intBitsToFloat(0x7fc01234), 0.25f, -0.125f};
+        IqBufferPool pool = new IqBufferPool(64);
+        MemoryFile file = new MemoryFile();
+        var recorder = recorder(small(dir, "leased", RecordingSettings.Policy.STOP_RECORDING, 4, 16),
+                p -> file, new AtomicReference<>());
+        try (LeasedSampleBlock block = leasedBlock(pool, values)) { recorder.offer(block); }
+        pool.close();
+        recorder.finish(true);
+        completed(recorder);
+        check(Arrays.equals(file.bytes(), bytes(values)) && pool.statistics().outstandingLeases() == 0,
+                "Leased source recording is bit-exact and drains after pool shutdown");
+
+        IqBufferPool failingPool = new IqBufferPool(128);
+        MemoryFile stalled = new MemoryFile();
+        stalled.entered = new CountDownLatch(1);
+        stalled.resume = new CountDownLatch(1);
+        stalled.failAfter = 0;
+        var failing = recorder(small(dir, "leased-failure", RecordingSettings.Policy.STOP_RECORDING, 2, 8),
+                p -> stalled, new AtomicReference<>());
+        try {
+            try (LeasedSampleBlock first = leasedBlock(failingPool, 1, 2, 3, 4)) { failing.offer(first); }
+            latch(stalled.entered);
+            try (LeasedSampleBlock queued = leasedBlock(failingPool, 5, 6)) { failing.offer(queued); }
+            failingPool.close();
+            failing.finish(true);
+        } finally { stalled.resume.countDown(); }
+        completed(failing);
+        check(failing.failure instanceof IOException && failingPool.statistics().outstandingLeases() == 0,
+                "Writer failure releases both active and queued source leases");
     }
 
     private static byte[] bytes(float... values) {
@@ -241,6 +286,8 @@ final class Cf32RecordingTest {
             source.start();
             check(source.awaitCompletion(WAIT), "Acquisition completion includes writer finalization");
             source.stop();
+            check(source.leasedStatistics().orElseThrow().pool().outstandingLeases() == 0,
+                    "Source recording releases all pooled samples before completion");
             var status = source.monitoringSnapshot().values();
             Path file = Path.of((String) status.get("source.recording.file"));
             check(file.getFileName().toString().equals("pass_2400000000_3000000sps_g42.5_20261024_163045.cf32"), "Exact UTC filename independent of clock zone");
@@ -273,6 +320,8 @@ final class Cf32RecordingTest {
             source.setSampleSink(b -> source.requestStop());
             source.start();
             check(source.awaitCompletion(WAIT), "Decimated RX2 recording completes");
+            check(source.leasedStatistics().orElseThrow().pool().outstandingLeases() == 0,
+                    "Decimated source recording drains its pool");
             var status = source.monitoringSnapshot().values();
             Path file = Path.of((String) status.get("source.recording.file"));
             check(file.getFileName().toString().equals("pass_2203682000_500000sps_g-3.5_20261024_163045.cf32"), "Filename uses read-back LO, delivered rate and selected RX2 gain");
@@ -307,6 +356,59 @@ final class Cf32RecordingTest {
         }
     }
 
+    private static void runtimeTranslationRecording(Path dir) throws Exception {
+        Path recordings = dir.resolve("rotation-source"), frames = dir.resolve("rotation-frames");
+        try (var server = new Fmcomms2SourceTest.Server(Fmcomms2SourceTest.xml("le:S12/16>>0", 0), (s, n, turn) -> {
+            if (turn == 0) {
+                byte[] raw = {0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0};
+                s.send(n + "\n" + s.mask + "\n"); s.fragment(raw);
+            } else { s.pending.countDown(); s.input.read(); }
+        })) {
+            var settings = new LinkedHashMap<String, Object>();
+            settings.put("source.type", "fmcomms2");
+            settings.put("source.uri", "ip:127.0.0.1:" + server.port());
+            settings.put("source.buffer_size", 4);
+            settings.put("source.block_samples", 2);
+            settings.put("source.recording.enabled", true);
+            settings.put("source.recording.folder", recordings.toString());
+            settings.put("source.output_frequency_offset", 750_000);
+            settings.put("decoder.type", "dummy");
+            settings.put("distribution.frames.type", "synthetic");
+            settings.put("distribution.monitoring.type", "synthetic");
+            settings.put("storage.folder", frames.toString());
+            Path recording;
+            try (var runtime = JSatDecodeRuntime.create(new Configuration(settings))) {
+                runtime.start();
+                latch(server.pending);
+                runtime.stop();
+                check(runtime.failure().isEmpty(), "Translated simulated acquisition stops without failure");
+                var status = runtime.monitoringSnapshot().values();
+                check(status.get("source.recording.complete").equals(true), "Source recording drains before runtime stops");
+                recording = Path.of((String) status.get("source.recording.file"));
+            }
+            check(Arrays.equals(Files.readAllBytes(recording), bytes(.5f, 0, .5f, 0, .5f, 0, .5f, 0)),
+                    "Source-owned recording preserves raw IQ before runtime translation");
+            List<Path> frameFiles;
+            try (var paths = Files.list(frames)) { frameFiles = paths.toList(); }
+            check(frameFiles.size() == 1, "Translated runtime produces one frame file");
+            float[] expected = {.5f, 0, 0, .5f, -.5f, 0, 0, -.5f};
+            int position = 0;
+            try (var input = new java.io.DataInputStream(Files.newInputStream(frameFiles.getFirst()))) {
+                while (input.available() > 0) {
+                    input.skipNBytes(input.readInt());
+                    input.skipNBytes(input.readInt());
+                    int length = input.readInt();
+                    ByteBuffer payload = ByteBuffer.wrap(input.readNBytes(length)).order(ByteOrder.LITTLE_ENDIAN);
+                    while (payload.hasRemaining()) {
+                        check(position < expected.length && Math.abs(payload.getFloat() - expected[position++]) < 1e-7f,
+                                "Decoder receives frequency-translated IQ");
+                    }
+                }
+            }
+            check(position == expected.length, "Runtime delivers every translated sample");
+        }
+    }
+
     private static void sourceFailures(Path dir) throws Exception {
         for (var policy : RecordingSettings.Policy.values()) {
             MemoryFile file = new MemoryFile();
@@ -325,6 +427,8 @@ final class Cf32RecordingTest {
                 source.start();
                 check(source.awaitCompletion(WAIT), "Recording fault terminates or allows callback stop");
                 source.stop();
+                check(source.leasedStatistics().orElseThrow().pool().outstandingLeases() == 0,
+                        "Recording failure releases every acquired source buffer");
                 var status = source.monitoringSnapshot().values();
                 check(status.get("source.recording.errors").equals(1L) && status.get("source.recording.complete").equals(false), "Storage failure remains observable");
                 if (policy == RecordingSettings.Policy.STOP_RECORDING)
@@ -446,9 +550,13 @@ final class Cf32RecordingTest {
                 latch(file.entered);
                 check(!source.awaitCompletion(Duration.ofMillis(20)) && source.state() != ComponentState.STOPPED,
                         "Source cannot report completion while an accepted batch is blocked in storage");
+                check(source.leasedStatistics().orElseThrow().pool().outstandingLeases() > 0,
+                        "A blocked recorder still owns its acquired samples");
             } finally { file.resume.countDown(); }
             check(source.awaitCompletion(WAIT), "Source completes after final writer drain");
             source.stop();
+            check(source.leasedStatistics().orElseThrow().pool().outstandingLeases() == 0,
+                    "Final writer drain releases every acquired sample");
             var status = source.monitoringSnapshot().values();
             check(status.get("source.recording.complete").equals(true) && file.size() == (Long) status.get("source.samples") * 8,
                     "Management shutdown writes every accepted sample");

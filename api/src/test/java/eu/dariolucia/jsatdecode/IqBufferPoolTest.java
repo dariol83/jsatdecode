@@ -3,6 +3,10 @@ package eu.dariolucia.jsatdecode;
 import eu.dariolucia.jsatdecode.api.source.ComplexSampleBlock;
 import eu.dariolucia.jsatdecode.api.source.IqBufferLease;
 import eu.dariolucia.jsatdecode.api.source.IqBufferPool;
+import eu.dariolucia.jsatdecode.api.source.IqReadAccess;
+import eu.dariolucia.jsatdecode.api.source.IqWriteAccess;
+import eu.dariolucia.jsatdecode.api.source.IqSampleView;
+import eu.dariolucia.jsatdecode.api.source.LeasedSampleBlock;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -25,6 +29,9 @@ public final class IqBufferPoolTest {
             return;
         }
         ownershipAndAdapter();
+        scopedAccess();
+        sharedBlockOwnership();
+        nonblockingBlockRetention();
         sizeClassesAndBudget();
         invalidOperations();
         allocationFailure();
@@ -36,6 +43,138 @@ public final class IqBufferPoolTest {
             concurrentAcquisition(seed);
         }
         System.out.println("IQ buffer pool: " + checks + " checks passed (three fixed concurrency seeds)");
+    }
+
+    private static void nonblockingBlockRetention() throws Exception {
+        IqBufferPool pool = new IqBufferPool(8);
+        IqBufferLease lease = acquire(pool, 1);
+        lease.publish(0, 1);
+        LeasedSampleBlock root = LeasedSampleBlock.from(lease, 0, 0, 1);
+        lease.close();
+        var field = IqBufferPool.class.getDeclaredField("lock");
+        field.setAccessible(true);
+        Object poolLock = field.get(pool);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            synchronized (poolLock) {
+                Future<?> retainAndReject = executor.submit(() -> {
+                    try (LeasedSampleBlock rejected = root.retain()) {
+                        require(rejected.complexSamples() == 1, "Retained metadata changed");
+                    }
+                });
+                retainAndReject.get(2, TimeUnit.SECONDS);
+            }
+        } finally {
+            root.close();
+            executor.shutdownNow();
+            require(executor.awaitTermination(10, TimeUnit.SECONDS), "Nonblocking retain worker did not stop");
+        }
+        assertDrained(pool);
+    }
+
+    private static void scopedAccess() throws Exception {
+        IqBufferPool pool = new IqBufferPool(32);
+        IqBufferLease writer = acquire(pool, 4);
+        IqWriteAccess[] escapedWriter = new IqWriteAccess[1];
+        writer.withWriteAccess(access -> {
+            escapedWriter[0] = access;
+            check(access.capacity() == 4);
+            access.put(1, Float.intBitsToFloat(0x7fc01234), -0.0f);
+            expect(IllegalStateException.class, () -> writer.publish(0, 1));
+            expect(IllegalStateException.class, writer::close);
+            expect(IllegalStateException.class, () -> writer.withWriteAccess(ignored -> { }));
+        });
+        expect(IllegalStateException.class, () -> escapedWriter[0].put(1, 3, 4));
+        expect(IllegalArgumentException.class, () -> writer.withWriteAccess(access -> { throw new IllegalArgumentException(); }));
+        writer.publish(1, 1);
+        IqReadAccess[] escapedReader = new IqReadAccess[1];
+        writer.withReadAccess(access -> {
+            escapedReader[0] = access;
+            check(access.complexSamples() == 1 && Float.floatToRawIntBits(access.i(0)) == 0x7fc01234);
+            check(Float.floatToRawIntBits(access.q(0)) == 0x80000000);
+            writer.close();
+            check(pool.tryAcquire(4).isEmpty());
+            check(Float.floatToRawIntBits(access.i(0)) == 0x7fc01234);
+        });
+        expect(IllegalStateException.class, () -> escapedReader[0].i(0));
+        check(pool.statistics().outstandingLeases() == 0);
+        try (IqBufferLease next = acquire(pool, 4)) {
+            next.withWriteAccess(access -> access.put(0, 9, -9));
+            next.publish(0, 1);
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            try {
+                next.withReadAccess(access -> {
+                    Future<?> future = executor.submit(() -> expect(IllegalStateException.class, () -> access.i(0)));
+                    try { future.get(10, TimeUnit.SECONDS); }
+                    catch (Exception e) { throw new AssertionError(e); }
+                });
+            } finally {
+                executor.shutdownNow();
+                require(executor.awaitTermination(10, TimeUnit.SECONDS), "Scope worker did not stop");
+            }
+        }
+        assertDrained(pool);
+    }
+
+    private static void sharedBlockOwnership() throws Exception {
+        IqBufferPool pool = new IqBufferPool(16);
+        IqBufferLease writer = acquire(pool, 2);
+        writer.put(1, 123, -123);
+        writer.publish(1, 1);
+        expect(IllegalArgumentException.class, () -> LeasedSampleBlock.from(writer, -1, 0, 1));
+        expect(IllegalArgumentException.class, () -> LeasedSampleBlock.from(writer, 0, 0, Double.NaN));
+        check(pool.statistics().outstandingLeases() == 1);
+        LeasedSampleBlock first = LeasedSampleBlock.from(writer, 7, -3, 48_000);
+        writer.close();
+        LeasedSampleBlock retained = first.retain();
+        first.close();
+        expect(IllegalStateException.class, first::retain);
+        check(pool.tryAcquire(2).isEmpty());
+        IqSampleView[] escaped = new IqSampleView[1];
+        retained.withView(view -> {
+            escaped[0] = view;
+            check(view.i(0) == 123 && view.q(0) == -123 && view.sampleIndex() == 7);
+            check(view.timestampNanos() == -3 && view.sampleRate() == 48_000);
+        });
+        expect(IllegalStateException.class, () -> escaped[0].sampleIndex());
+        expect(IllegalArgumentException.class, () -> retained.withView(view -> { throw new IllegalArgumentException(); }));
+        check(pool.statistics().outstandingLeases() == 1);
+        ComplexSampleBlock legacy = retained.toComplexSampleBlock();
+        pool.close();
+        retained.withView(view -> check(view.i(0) == 123));
+        retained.close();
+        expect(IllegalStateException.class, retained::close);
+        check(legacy.i(0) == 123 && pool.statistics().outstandingLeases() == 0);
+        assertDrained(pool);
+
+        IqBufferPool racePool = new IqBufferPool(8);
+        IqBufferLease lease = acquire(racePool, 1);
+        lease.put(0, 17, -17);
+        lease.publish(0, 1);
+        LeasedSampleBlock root = LeasedSampleBlock.from(lease, 0, 0, 1);
+        lease.close();
+        ExecutorService executor = Executors.newFixedThreadPool(4);
+        List<Future<?>> tasks = new ArrayList<>();
+        CountDownLatch go = new CountDownLatch(1);
+        try {
+            for (int n = 0; n < 4; n++) tasks.add(executor.submit(() -> {
+                try {
+                    require(go.await(10, TimeUnit.SECONDS), "Shared-block race did not start");
+                    for (int j = 0; j < 5000; j++) {
+                        LeasedSampleBlock child;
+                        try { child = root.retain(); } catch (IllegalStateException closed) { break; }
+                        try (child) { child.withView(view -> require(view.i(0) == 17 && view.q(0) == -17, "Recycled shared block")); }
+                    }
+                } catch (InterruptedException e) { throw new AssertionError(e); }
+            }));
+            go.countDown();
+            root.close();
+            for (Future<?> task : tasks) task.get(30, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+            require(executor.awaitTermination(10, TimeUnit.SECONDS), "Shared-block workers did not stop");
+        }
+        assertDrained(racePool);
     }
 
     private static void ownershipAndAdapter() {

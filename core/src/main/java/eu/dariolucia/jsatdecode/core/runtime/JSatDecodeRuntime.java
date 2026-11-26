@@ -3,6 +3,7 @@ package eu.dariolucia.jsatdecode.core.runtime;
 import eu.dariolucia.jsatdecode.api.config.Configuration;
 import eu.dariolucia.jsatdecode.api.decoder.Decoder;
 import eu.dariolucia.jsatdecode.api.decoder.DecoderFactory;
+import eu.dariolucia.jsatdecode.api.decoder.LeasedDecoder;
 import eu.dariolucia.jsatdecode.api.distribution.*;
 import eu.dariolucia.jsatdecode.api.lifecycle.ComponentState;
 import eu.dariolucia.jsatdecode.api.lifecycle.LifecycleComponent;
@@ -10,6 +11,9 @@ import eu.dariolucia.jsatdecode.api.monitoring.Monitorable;
 import eu.dariolucia.jsatdecode.api.monitoring.MonitoringDescriptor;
 import eu.dariolucia.jsatdecode.api.monitoring.MonitoringSnapshot;
 import eu.dariolucia.jsatdecode.api.source.ManagedSampleSource;
+import eu.dariolucia.jsatdecode.api.source.IqBufferPool;
+import eu.dariolucia.jsatdecode.api.source.LeasedSampleSink;
+import eu.dariolucia.jsatdecode.api.source.LeasedSampleSource;
 import eu.dariolucia.jsatdecode.api.source.SampleSource;
 import eu.dariolucia.jsatdecode.api.source.SampleSourceFactory;
 import eu.dariolucia.jsatdecode.api.taps.TapProvider;
@@ -30,6 +34,7 @@ public final class JSatDecodeRuntime implements LifecycleComponent, Monitorable 
     private final List<MonitoringDistributor> monitoring;
     private final List<LifecycleComponent> startup;
     private final VerboseMonitoringLog verboseLog;
+    private final IqBufferPool rotatorPool;
     private volatile ComponentState state = ComponentState.CONFIGURED;
     private volatile Throwable failure;
     private boolean stopped, closed;
@@ -67,7 +72,15 @@ public final class JSatDecodeRuntime implements LifecycleComponent, Monitorable 
         decoder.setFrameSink(frame -> {
             for (FrameDistributor output : this.frames) output.distribute(frame);
         });
-        source.setSampleSink(SourceFrequencyRotator.connect(decoder::accept, outputFrequencyOffset));
+        if (source instanceof LeasedSampleSource leasedSource) {
+            LeasedSampleSink target = decoder instanceof LeasedDecoder leasedDecoder
+                    ? leasedDecoder::acceptLeased : block -> decoder.accept(block.toComplexSampleBlock());
+            rotatorPool = outputFrequencyOffset == 0 ? null : new IqBufferPool(256L * 1024 * 1024);
+            leasedSource.setLeasedSampleSink(LeasedFrequencyRotator.connect(target, outputFrequencyOffset, rotatorPool));
+        } else {
+            rotatorPool = null;
+            source.setSampleSink(SourceFrequencyRotator.connect(decoder::accept, outputFrequencyOffset));
+        }
         verboseLog = verbose ? new VerboseMonitoringLog(monitoringDescriptors(), System.err::println) : null;
     }
 
@@ -388,6 +401,7 @@ public final class JSatDecodeRuntime implements LifecycleComponent, Monitorable 
             } catch (Throwable e) {
                 record(e);
             }
+        if (rotatorPool != null) rotatorPool.close();
         state = ComponentState.CLOSED;
     }
 

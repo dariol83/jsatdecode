@@ -9,6 +9,11 @@ Inspector depends on API and core's shared source registry and spectrum/UI
 components. It has no production dependency on a concrete source, decoder or
 distribution module. Sources are discovered through the API factory service.
 Include `source_file` and/or `source_fmcomms2` at runtime for acquisition.
+When the source offers leased samples, Inspector borrows them for synchronous
+analysis and retains independent claims for asynchronous recording. Queued
+claims are released on drain, rejection and writer failure; source shutdown
+does not invalidate samples still being written. Sources without the capability
+continue to use retainable legacy blocks.
 
 With JDK 25 and Maven, build and test from the repository root:
 

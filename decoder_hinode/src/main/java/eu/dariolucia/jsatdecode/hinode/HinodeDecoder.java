@@ -11,6 +11,7 @@ import static eu.dariolucia.jsatdecode.decoder.base.config.DecoderConfiguration.
 import eu.dariolucia.jsatdecode.api.config.Configuration;
 import eu.dariolucia.jsatdecode.api.config.ConfigurationException;
 import eu.dariolucia.jsatdecode.api.decoder.DecoderDescriptor;
+import eu.dariolucia.jsatdecode.api.decoder.LeasedDecoder;
 import eu.dariolucia.jsatdecode.api.frame.AnnotatedFrame;
 import eu.dariolucia.jsatdecode.api.lifecycle.ComponentState;
 import eu.dariolucia.jsatdecode.api.monitoring.DecoderStatusKeys;
@@ -18,6 +19,8 @@ import eu.dariolucia.jsatdecode.api.monitoring.MonitoringDescriptor;
 import eu.dariolucia.jsatdecode.api.monitoring.MonitoringSnapshot;
 import eu.dariolucia.jsatdecode.api.monitoring.MonitoringType;
 import eu.dariolucia.jsatdecode.api.source.ComplexSampleBlock;
+import eu.dariolucia.jsatdecode.api.source.IqSampleView;
+import eu.dariolucia.jsatdecode.api.source.LeasedSampleBlock;
 import eu.dariolucia.jsatdecode.api.taps.ComplexTap;
 import eu.dariolucia.jsatdecode.api.taps.TapProvider;
 import eu.dariolucia.jsatdecode.core.buffers.ComplexFloatRingBuffer;
@@ -39,7 +42,7 @@ import java.util.Set;
  * observation reads are concurrent and bounded. No worker, file output or UI is created. See
  * docs/receiver.md for qualification limits.
  */
-public final class HinodeDecoder extends AbstractDecoder {
+public final class HinodeDecoder extends AbstractDecoder implements LeasedDecoder {
     static final DecoderDescriptor DESCRIPTOR =
             new DecoderDescriptor(
                     "hinode_s_tlm",
@@ -146,6 +149,15 @@ public final class HinodeDecoder extends AbstractDecoder {
 
     @Override
     public void accept(ComplexSampleBlock block) {
+        acceptSamples(block);
+    }
+
+    @Override
+    public void acceptLeased(LeasedSampleBlock block) {
+        block.withView(this::acceptSamples);
+    }
+
+    private void acceptSamples(IqSampleView block) {
         if (state != ComponentState.RUNNING) throw new IllegalStateException("Decoder not running");
         try {
             if (block.sampleRate() != 500000)

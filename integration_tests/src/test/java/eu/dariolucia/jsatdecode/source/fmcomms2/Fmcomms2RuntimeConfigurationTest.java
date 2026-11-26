@@ -24,9 +24,19 @@ import static org.junit.jupiter.api.Assertions.*;
 class Fmcomms2RuntimeConfigurationTest {
     @Test
     void runtimeUpdatesUseIndependentControlAndPreserveTheSampleClock() throws Exception {
+        runtimeUpdates(false);
+    }
+
+    @Test
+    void leasedRuntimeUpdatesPreserveTheSampleClock() throws Exception {
+        runtimeUpdates(true);
+    }
+
+    private void runtimeUpdates(boolean leased) throws Exception {
         try (Peer peer = new Peer(); Fmcomms2SampleSource source = source(peer)) {
             BlockingQueue<ComplexSampleBlock> blocks = new LinkedBlockingQueue<>();
-            source.setSampleSink(blocks::add);
+            if (leased) source.setLeasedSampleSink(block -> blocks.add(block.toComplexSampleBlock()));
+            else source.setSampleSink(blocks::add);
             assertThrows(IllegalStateException.class, () -> source.updateConfiguration(new Configuration(Map.of("frequency", 145000000L))));
             source.start();
             assertTrue(peer.readPending.await(5, TimeUnit.SECONDS));
@@ -61,6 +71,7 @@ class Fmcomms2RuntimeConfigurationTest {
             assertEquals(first.q(0), second.q(0));
             source.stop();
             assertTrue(source.failure().isEmpty());
+            if (leased) assertEquals(0, source.leasedStatistics().orElseThrow().pool().outstandingLeases());
             assertThrows(IllegalStateException.class, () -> source.updateConfiguration(new Configuration(Map.of("frequency", 146000000L))));
         }
     }
@@ -68,7 +79,7 @@ class Fmcomms2RuntimeConfigurationTest {
     @Test
     void hardwareFailureFailsAndCancelsAcquisitionInsteadOfAcknowledgingPartialChanges() throws Exception {
         try (Peer peer = new Peer(); Fmcomms2SampleSource source = source(peer)) {
-            source.setSampleSink(block -> { });
+            source.setLeasedSampleSink(block -> { });
             source.start();
             assertTrue(peer.readPending.await(5, TimeUnit.SECONDS));
             peer.rejectAttribute = "rf_bandwidth";
@@ -83,7 +94,7 @@ class Fmcomms2RuntimeConfigurationTest {
     void cancellationAlsoClosesABlockedRuntimeControlConnection() throws Exception {
         try (Peer peer = new Peer(); Fmcomms2SampleSource source = source(peer);
              ExecutorService owner = Executors.newSingleThreadExecutor()) {
-            source.setSampleSink(block -> { });
+            source.setLeasedSampleSink(block -> { });
             source.start();
             peer.pauseControl = true;
             Future<?> update = owner.submit(() -> source.updateConfiguration(new Configuration(Map.of("frequency", 145000000L))));

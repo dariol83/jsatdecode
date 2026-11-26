@@ -1,6 +1,9 @@
 package eu.dariolucia.jsatdecode.inspector;
 
 import eu.dariolucia.jsatdecode.api.source.ComplexSampleBlock;
+import eu.dariolucia.jsatdecode.api.source.IqBufferLease;
+import eu.dariolucia.jsatdecode.api.source.IqBufferPool;
+import eu.dariolucia.jsatdecode.api.source.LeasedSampleBlock;
 import eu.dariolucia.jsatdecode.api.source.ManagedSampleSource;
 import eu.dariolucia.jsatdecode.dsp.fft.WindowFunction;
 
@@ -33,6 +36,7 @@ public final class InspectorReceiverTest {
     public static void run() throws Exception {
         mapping();
         decimation();
+        leasedDecimation();
         continuity();
         networkDiagnostics();
         for (RecordingFormat format : RecordingFormat.values()) networkRecording(format);
@@ -170,6 +174,53 @@ public final class InspectorReceiverTest {
             try (var paths = Files.walk(folder)) {
                 for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);
             }
+        }
+    }
+
+    private static void leasedDecimation() {
+        for (int factor : new int[]{2, 4, 8, 16, 32, 64}) {
+            InspectorDecimator legacy = new InspectorDecimator(factor), migrated = new InspectorDecimator(factor);
+            IqBufferPool sourcePool = new IqBufferPool(128 * 1024);
+            List<ComplexSampleBlock> expected = new ArrayList<>();
+            List<LeasedSampleBlock> actual = new ArrayList<>();
+            int offset = 0;
+            try {
+                for (int count : new int[]{0, 1, 7, 301, 4096, 13}) {
+                    ComplexSampleBlock input = tone(4_000_000, offset, count, 1000);
+                    expected.add(legacy.process(input));
+                    try (IqBufferLease lease = sourcePool.tryAcquire(count).orElseThrow()) {
+                        lease.putInterleaved(input.iq(), 0, 0, count);
+                        lease.publish(0, count);
+                        try (LeasedSampleBlock block = LeasedSampleBlock.from(lease, input.sampleIndex(),
+                                input.timestampNanos(), input.sampleRate())) {
+                            block.withView(view -> actual.add(migrated.processLeased(view)));
+                        }
+                    }
+                    offset += count;
+                }
+                sourcePool.close();
+                migrated.close();
+                for (int n = 0; n < expected.size(); n++) {
+                    ComplexSampleBlock prior = expected.get(n);
+                    actual.get(n).withView(view -> {
+                        check(view.complexSamples() == prior.complexSamples() && view.sampleIndex() == prior.sampleIndex()
+                                        && view.timestampNanos() == prior.timestampNanos() && view.sampleRate() == prior.sampleRate(),
+                                "Leased decimation preserves block metadata");
+                        for (int j = 0; j < view.complexSamples(); j++) {
+                            check(Float.floatToRawIntBits(view.i(j)) == Float.floatToRawIntBits(prior.i(j))
+                                            && Float.floatToRawIntBits(view.q(j)) == Float.floatToRawIntBits(prior.q(j)),
+                                    "Leased decimation is bit-identical to legacy output");
+                        }
+                    });
+                }
+            } finally {
+                actual.forEach(LeasedSampleBlock::close);
+                sourcePool.close();
+                migrated.close();
+                legacy.close();
+            }
+            check(sourcePool.statistics().outstandingLeases() == 0 && migrated.poolStatistics().outstandingLeases() == 0,
+                    "Leased decimator pools drain after downstream readers close");
         }
     }
 

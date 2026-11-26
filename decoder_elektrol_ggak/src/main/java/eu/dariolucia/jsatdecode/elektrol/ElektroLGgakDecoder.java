@@ -12,12 +12,15 @@ import static eu.dariolucia.jsatdecode.decoder.base.FrameAnnotationKeys.RX_TIME_
 
 import eu.dariolucia.jsatdecode.api.config.Configuration;
 import eu.dariolucia.jsatdecode.api.decoder.DecoderDescriptor;
+import eu.dariolucia.jsatdecode.api.decoder.LeasedDecoder;
 import eu.dariolucia.jsatdecode.api.frame.AnnotatedFrame;
 import eu.dariolucia.jsatdecode.api.lifecycle.ComponentState;
 import eu.dariolucia.jsatdecode.api.monitoring.DecoderStatusKeys;
 import eu.dariolucia.jsatdecode.api.monitoring.MonitoringDescriptor;
 import eu.dariolucia.jsatdecode.api.monitoring.MonitoringSnapshot;
 import eu.dariolucia.jsatdecode.api.source.ComplexSampleBlock;
+import eu.dariolucia.jsatdecode.api.source.IqSampleView;
+import eu.dariolucia.jsatdecode.api.source.LeasedSampleBlock;
 import eu.dariolucia.jsatdecode.api.taps.ComplexTap;
 import eu.dariolucia.jsatdecode.api.taps.TapProvider;
 import eu.dariolucia.jsatdecode.core.buffers.ComplexFloatRingBuffer;
@@ -38,7 +41,7 @@ import java.util.Optional;
  * Every output is 220 polarity-normalized, additive-checksum-valid bytes following a 32-bit ASM.
  * Checksum octets are retained; no payload error correction is attempted.
  */
-public final class ElektroLGgakDecoder extends AbstractDecoder {
+public final class ElektroLGgakDecoder extends AbstractDecoder implements LeasedDecoder {
     static final DecoderDescriptor DESCRIPTOR =
             new DecoderDescriptor(
                     "elektrol_ggak",
@@ -107,6 +110,15 @@ public final class ElektroLGgakDecoder extends AbstractDecoder {
 
     @Override
     public void accept(ComplexSampleBlock block) {
+        acceptSamples(block);
+    }
+
+    @Override
+    public void acceptLeased(LeasedSampleBlock block) {
+        block.withView(this::acceptSamples);
+    }
+
+    private void acceptSamples(IqSampleView block) {
         if (state != ComponentState.RUNNING) throw new IllegalStateException("Decoder is not running");
         try {
             Objects.requireNonNull(block, "block");

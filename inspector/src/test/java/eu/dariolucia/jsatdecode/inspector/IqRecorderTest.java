@@ -1,6 +1,9 @@
 package eu.dariolucia.jsatdecode.inspector;
 
 import eu.dariolucia.jsatdecode.api.source.ComplexSampleBlock;
+import eu.dariolucia.jsatdecode.api.source.IqBufferLease;
+import eu.dariolucia.jsatdecode.api.source.IqBufferPool;
+import eu.dariolucia.jsatdecode.api.source.LeasedSampleBlock;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -31,6 +34,8 @@ public final class IqRecorderTest {
         try {
             exactBytes(folder);
             exactCs16Bytes(folder);
+            leasedRecording(folder);
+            leasedStopRace(folder);
             for (RecordingFormat format : RecordingFormat.values()) diskFailure(folder, format);
             overflow(folder);
             cs16MemoryOverflow(folder);
@@ -48,6 +53,96 @@ public final class IqRecorderTest {
 
     private static ComplexSampleBlock block(float... iq) {
         return new ComplexSampleBlock(iq, iq.length / 2, 0, 0, 500000);
+    }
+
+    private static LeasedSampleBlock leasedBlock(IqBufferPool pool, float... iq) {
+        try (IqBufferLease lease = pool.tryAcquire(iq.length / 2).orElseThrow()) {
+            lease.putInterleaved(iq, 0, 0, iq.length / 2);
+            lease.publish(0, iq.length / 2);
+            return LeasedSampleBlock.from(lease, 0, 0, 500_000);
+        }
+    }
+
+    private static void leasedRecording(Path folder) throws Exception {
+        float[] iq = {1, -1, -0f, Float.intBitsToFloat(0x7fc01234), 0.5f, -0.5f, 3, -3};
+        for (RecordingFormat format : RecordingFormat.values()) {
+            MemoryFile baseline = new MemoryFile(), migrated = new MemoryFile();
+            baseline.maxWrite = migrated.maxWrite = 3;
+            IqRecorder oldRecorder = new IqRecorder(folder, 1, 500_000, 0, START, format, 4, 1024, 8, p -> baseline);
+            oldRecorder.offer(block(iq));
+            oldRecorder.close();
+            IqBufferPool pool = new IqBufferPool(64);
+            IqRecorder recorder = new IqRecorder(folder, 1, 500_000, 0, START, format, 4, 1024, 8, p -> migrated);
+            try (LeasedSampleBlock sample = leasedBlock(pool, iq)) { recorder.offer(sample); }
+            pool.close();
+            recorder.close();
+            check(recorder.complete() && Arrays.equals(baseline.data.toByteArray(), migrated.data.toByteArray()),
+                    format + " leased recording matches legacy bytes after source shutdown");
+            check(pool.statistics().outstandingLeases() == 0, format + " leased writer releases its final claim");
+        }
+
+        IqBufferPool pool = new IqBufferPool(64);
+        MemoryFile stalled = new MemoryFile();
+        stalled.entered = new CountDownLatch(1);
+        stalled.release = new CountDownLatch(1);
+        IqRecorder recorder = recorder(folder, 1, 8, p -> stalled);
+        try (LeasedSampleBlock first = leasedBlock(pool, 1, 2, 3, 4)) { recorder.offer(first); }
+        check(stalled.entered.await(5, TimeUnit.SECONDS), "Leased writer enters stalled disk");
+        try (LeasedSampleBlock queued = leasedBlock(pool, 5, 6)) { recorder.offer(queued); }
+        try (LeasedSampleBlock rejected = leasedBlock(pool, 7, 8)) { recorder.offer(rejected); }
+        check(recorder.failure() instanceof IOException && pool.statistics().outstandingLeases() >= 2,
+                "Overflow rejects the new block while writer and queued data remain owned");
+        pool.close();
+        stalled.release.countDown();
+        recorder.close();
+        check(recorder.writtenBytes() == 24 && pool.statistics().outstandingLeases() == 0,
+                "Overflow drains and releases accepted leases after source pool closes");
+
+        IqBufferPool failedPool = new IqBufferPool(128);
+        MemoryFile failed = new MemoryFile();
+        failed.entered = new CountDownLatch(1);
+        failed.release = new CountDownLatch(1);
+        failed.failAt = 0;
+        IqRecorder failing = recorder(folder, 4, 8, p -> failed);
+        try (LeasedSampleBlock first = leasedBlock(failedPool, 1, 2, 3, 4)) { failing.offer(first); }
+        check(failed.entered.await(5, TimeUnit.SECONDS), "Leased writer stalls before injected failure");
+        try (LeasedSampleBlock queued = leasedBlock(failedPool, 5, 6)) { failing.offer(queued); }
+        failedPool.close();
+        failed.release.countDown();
+        failing.close();
+        check(failing.failure() instanceof IOException && failedPool.statistics().outstandingLeases() == 0,
+                "Writer failure releases its active and purged queued leases");
+    }
+
+    private static void leasedStopRace(Path folder) throws Exception {
+        for (RecordingFormat format : RecordingFormat.values()) {
+            for (int run = 0; run < 6; run++) {
+                IqBufferPool pool = new IqBufferPool(32_768);
+                MemoryFile memory = new MemoryFile();
+                IqRecorder recorder = new IqRecorder(folder, 1, 500_000, 0, START,
+                        format, 2048, 32_768, 128, p -> memory);
+                CountDownLatch first = new CountDownLatch(1);
+                AtomicReference<Throwable> error = new AtomicReference<>();
+                Thread producer = new Thread(() -> {
+                    try {
+                        for (int n = 0; n < 1000; n++) {
+                            try (LeasedSampleBlock block = leasedBlock(pool, n, -n)) { recorder.offer(block); }
+                            first.countDown();
+                        }
+                    } catch (Throwable e) { error.set(e); first.countDown(); }
+                });
+                producer.start();
+                check(first.await(5, TimeUnit.SECONDS), "Leased producer begins before stop");
+                recorder.close();
+                producer.join(5000);
+                check(!producer.isAlive() && error.get() == null && recorder.complete(),
+                        format + " rapid stop rejects late offers safely");
+                check(recorder.writtenBytes() == recorder.acceptedBytes()
+                                && pool.statistics().outstandingLeases() == 0,
+                        format + " stop drains every accepted block without leaks");
+                pool.close();
+            }
+        }
     }
 
     private static IqRecorder recorder(Path folder, int slots, int writeBytes, IqRecorder.FileFactory files) throws IOException {

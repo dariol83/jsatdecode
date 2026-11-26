@@ -28,13 +28,14 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Shared little-endian float32 stereo file engine. One owned worker delivers
- * immutable blocks serially to the functional sink; observers only pull metrics.
+ * legacy immutable blocks or borrowed read-only leased blocks serially to the
+ * functional sink; observers only pull metrics.
  * Lifecycle mutations belong to a serialized management caller. State/monitoring
  * reads and requestStop are thread-safe. Start is one-shot; restart is unsupported.
  * Stop/close interrupt pacing or file reads and join the worker; sink code must
  * cooperate with interruption. No channel is retained before start or after completion.
  */
-public abstract class AbstractFileSampleSource implements ManagedSampleSource {
+public abstract class AbstractFileSampleSource implements ManagedSampleSource, LeasedSampleSource {
     private final Object lifecycle = new Object();
     private final SourceDescriptor descriptor;
     private final FileSourceSettings settings;
@@ -50,6 +51,9 @@ public abstract class AbstractFileSampleSource implements ManagedSampleSource {
     private volatile long startNanos, endNanos;
     private volatile Throwable failure;
     private SampleSink sink;
+    private LeasedSampleSink leasedSink;
+    private volatile IqBufferPool iqPool;
+    private volatile long leasedBlocks;
     private Thread worker;
 
     /**
@@ -128,11 +132,28 @@ public abstract class AbstractFileSampleSource implements ManagedSampleSource {
         synchronized (lifecycle) {
             if (state != ComponentState.CONFIGURED) throw new IllegalStateException("Sink wiring requires CONFIGURED");
             this.sink = Objects.requireNonNull(sink, "sink");
+            this.leasedSink = null;
         }
     }
 
+    @Override
+    public final void setLeasedSampleSink(LeasedSampleSink sink) {
+        synchronized (lifecycle) {
+            if (state != ComponentState.CONFIGURED) throw new IllegalStateException("Sink wiring requires CONFIGURED");
+            this.leasedSink = Objects.requireNonNull(sink, "sink");
+            this.sink = null;
+        }
+    }
+
+    @Override
+    public final Optional<LeasedSampleSource.Statistics> leasedStatistics() {
+        IqBufferPool pool = iqPool;
+        return pool == null ? Optional.empty() : Optional.of(new LeasedSampleSource.Statistics(leasedBlocks, pool.statistics()));
+    }
+
     /**
-     * Starts a one-shot worker with bounded reusable byte/float staging buffers.
+     * Starts a one-shot worker with bounded byte staging and either reusable
+     * legacy float staging or a bounded pool for leased samples.
      *
      * @throws LifecycleException unless CONFIGURED with a sink installed
      * @throws SourceException    if opening or starting fails; state becomes FAILED
@@ -141,7 +162,7 @@ public abstract class AbstractFileSampleSource implements ManagedSampleSource {
     public final void start() {
         // Validate lifecycle ownership, then acquire resources before publishing RUNNING.
         synchronized (lifecycle) {
-            if (state != ComponentState.CONFIGURED || sink == null)
+            if (state != ComponentState.CONFIGURED || sink == null && leasedSink == null)
                 throw new LifecycleException("Start requires CONFIGURED and an installed sink");
             state = ComponentState.STARTING;
             FileChannel channel = null;
@@ -150,7 +171,14 @@ public abstract class AbstractFileSampleSource implements ManagedSampleSource {
                 if (channel.size() < dataOffset + dataBytes)
                     throw new EOFException("Source was truncated before start");
                 ByteBuffer bytes = ByteBuffer.allocate(settings.blockSamples() * 8).order(ByteOrder.LITTLE_ENDIAN);
-                float[] iq = new float[settings.blockSamples() * 2];
+                float[] iq = sink == null ? null : new float[settings.blockSamples() * 2];
+                if (leasedSink != null) {
+                    long capacity = (long) Integer.highestOneBit(settings.blockSamples() - 1) * 2;
+                    if (capacity == 0) capacity = 1;
+                    // Inspector can retain 64 MiB by valid length; size-class
+                    // rounding can double that, plus source/writer in-flight blocks.
+                    iqPool = new IqBufferPool(128L * 1024 * 1024 + 3 * capacity * 8);
+                }
                 FileChannel owned = channel;
                 worker = new Thread(() -> run(owned, bytes, iq), "jsatdecode-source-" + descriptor.id());
                 startNanos = System.nanoTime();
@@ -159,6 +187,7 @@ public abstract class AbstractFileSampleSource implements ManagedSampleSource {
                 state = ComponentState.RUNNING;
                 worker.start();
             } catch (IOException | RuntimeException | Error e) {
+                if (iqPool != null) iqPool.close();
                 if (channel != null) {
                     try {
                         channel.close();
@@ -303,6 +332,7 @@ public abstract class AbstractFileSampleSource implements ManagedSampleSource {
         } catch (IOException | RuntimeException | Error e) {
             if (!stopRequested || !(e instanceof AsynchronousCloseException)) problem = e;
         } finally {
+            if (iqPool != null) iqPool.close();
             endNanos = System.nanoTime();
             finished = true;
             synchronized (lifecycle) {
@@ -335,12 +365,28 @@ public abstract class AbstractFileSampleSource implements ManagedSampleSource {
             bytes.clear().limit(count * 8);
             readFully(channel, bytes, dataOffset + index * 8);
             bytes.flip();
-            for (int n = 0; n < count * 2; n++) iq[n] = bytes.getFloat();
-            if (settings.realtime()) pace(nextDelivered / sampleRate);
-            if (stopRequested) return;
-            // The immutable API block owns its sample copy; reuse staging only after delivery.
-            long timestamp = Math.addExact(startUtcNanos, (long) (delivered / sampleRate * 1e9));
-            sink.accept(new ComplexSampleBlock(iq, count, index, timestamp, sampleRate));
+            if (leasedSink == null) {
+                for (int n = 0; n < count * 2; n++) iq[n] = bytes.getFloat();
+                if (settings.realtime()) pace(nextDelivered / sampleRate);
+                if (stopRequested) return;
+                long timestamp = Math.addExact(startUtcNanos, (long) (delivered / sampleRate * 1e9));
+                sink.accept(new ComplexSampleBlock(iq, count, index, timestamp, sampleRate));
+            } else {
+                try (IqBufferLease lease = iqPool.tryAcquire(count).orElseThrow(
+                        () -> new SourceException("IQ buffer pool exhausted"))) {
+                    lease.withWriteAccess(access -> {
+                        for (int n = 0; n < count; n++) access.put(n, bytes.getFloat(), bytes.getFloat());
+                    });
+                    if (settings.realtime()) pace(nextDelivered / sampleRate);
+                    if (stopRequested) return;
+                    lease.publish(0, count);
+                    long timestamp = Math.addExact(startUtcNanos, (long) (delivered / sampleRate * 1e9));
+                    try (LeasedSampleBlock block = LeasedSampleBlock.from(lease, index, timestamp, sampleRate)) {
+                        leasedSink.accept(block);
+                        leasedBlocks++;
+                    }
+                }
+            }
             delivered = nextDelivered;
             index += count;
             samples.set(delivered);

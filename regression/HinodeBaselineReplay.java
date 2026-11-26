@@ -53,7 +53,8 @@ public final class HinodeBaselineReplay {
                 }
                 frames.writeBytes(data);
             });
-            source.setSampleSink(decoder::accept);
+            if (Boolean.getBoolean("jsatdecode.replay.leased")) source.setLeasedSampleSink(decoder::acceptLeased);
+            else source.setSampleSink(decoder::accept);
             decoder.start();
             long start = System.nanoTime();
             source.start();
@@ -63,6 +64,11 @@ public final class HinodeBaselineReplay {
             if (decoder.state() != ComponentState.RUNNING) throw new IllegalStateException("Decoder is " + decoder.state());
             decoderMetrics = new TreeMap<>(decoder.monitoringSnapshot().values());
             sourceMetrics = new TreeMap<>(source.monitoringSnapshot().values());
+            if (Boolean.getBoolean("jsatdecode.replay.leased")) {
+                var pool = source.leasedStatistics().orElseThrow();
+                if (pool.pool().outstandingLeases() != 0) throw new IllegalStateException("Outstanding leases: " + pool);
+                System.out.println("leased_diagnostics=" + pool);
+            }
             if (!Boolean.TRUE.equals(sourceMetrics.get("source.eof"))
                     || !sourceMetrics.get("source.selected_samples").equals(sourceMetrics.get("source.samples"))) {
                 throw new IllegalStateException("Recording did not reach EOF exactly once");

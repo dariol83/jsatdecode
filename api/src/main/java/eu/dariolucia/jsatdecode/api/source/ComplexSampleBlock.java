@@ -9,7 +9,7 @@ import java.util.Objects;
  * Timestamp is UTC epoch nanoseconds; sampleIndex is the recording/stream
  * position. Construct once per block, never once per sample. Safe to share.
  */
-public final class ComplexSampleBlock {
+public final class ComplexSampleBlock implements IqSampleView {
     private final float[] iq;
     private final int complexSamples;
     private final long sampleIndex, timestampNanos;
@@ -25,12 +25,24 @@ public final class ComplexSampleBlock {
      * @param sampleRate     positive finite complex samples per second
      */
     public ComplexSampleBlock(float[] iq, int complexSamples, long sampleIndex, long timestampNanos, double sampleRate) {
+        this(iq, complexSamples, sampleIndex, timestampNanos, sampleRate, true);
+    }
+
+    // Only for an array freshly allocated inside this package and never exposed.
+    static ComplexSampleBlock fromOwnedCopy(float[] iq, int complexSamples, long sampleIndex,
+                                            long timestampNanos, double sampleRate) {
+        if (iq.length != complexSamples * 2) throw new IllegalArgumentException("Invalid owned array length");
+        return new ComplexSampleBlock(iq, complexSamples, sampleIndex, timestampNanos, sampleRate, false);
+    }
+
+    private ComplexSampleBlock(float[] iq, int complexSamples, long sampleIndex, long timestampNanos,
+                               double sampleRate, boolean copy) {
         Objects.requireNonNull(iq, "iq");
         if (complexSamples < 0 || complexSamples > iq.length / 2)
             throw new IllegalArgumentException("Invalid complexSamples");
         if (sampleIndex < 0) throw new IllegalArgumentException("Negative sampleIndex");
         if (!Double.isFinite(sampleRate) || sampleRate <= 0) throw new IllegalArgumentException("Invalid sampleRate");
-        this.iq = Arrays.copyOf(iq, complexSamples * 2);
+        this.iq = copy ? Arrays.copyOf(iq, complexSamples * 2) : iq;
         this.complexSamples = complexSamples;
         this.sampleIndex = sampleIndex;
         this.timestampNanos = timestampNanos;

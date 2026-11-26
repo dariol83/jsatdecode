@@ -1,8 +1,11 @@
 package eu.dariolucia.jsatdecode.source.fmcomms2;
 
 import eu.dariolucia.jsatdecode.api.source.ComplexSampleBlock;
+import eu.dariolucia.jsatdecode.api.source.IqSampleView;
+import eu.dariolucia.jsatdecode.api.source.LeasedSampleBlock;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
@@ -17,7 +20,8 @@ import java.util.function.Consumer;
 
 /* One producer (acquisition), one consumer (disk). Lifecycle is owned by source management.
    Volatile tail publishes the slot and preceding sample accounting; volatile head publishes
-   reclamation. Slots need no per-entry atomics, wrappers, allocation or producer-side locks.
+   reclamation. Slots need no per-entry atomics or producer-side locks. A leased
+   block is retained before publication and released after the final writer read.
    A submitting flag allows exceptional consumer cleanup to quiesce an in-flight offer. */
 final class Cf32Recorder {
     enum State { STARTING, RECORDING, DRAINING, COMPLETE, INCOMPLETE, FAILED }
@@ -31,7 +35,7 @@ final class Cf32Recorder {
     private final Runnable completed;
     private final int wakeThreshold;
     private final CountDownLatch done = new CountDownLatch(1);
-    private ComplexSampleBlock[] queue;
+    private Object[] queue;
     private ByteBuffer buffer;
     private SeekableByteChannel channel;
     private Thread worker;
@@ -55,7 +59,7 @@ final class Cf32Recorder {
     void start(FileFactory files) throws IOException {
         try {
             // Setup stays on management; neither allocation nor file creation can pace DSP.
-            queue = new ComplexSampleBlock[settings.slots()];
+            queue = new Object[settings.slots()];
             buffer = ByteBuffer.allocateDirect(settings.writeBytes()).order(ByteOrder.LITTLE_ENDIAN);
             Files.createDirectories(settings.folder());
             channel = files.open(file);
@@ -74,17 +78,28 @@ final class Cf32Recorder {
     }
 
     void offer(ComplexSampleBlock block) {
+        offer(block, null);
+    }
+
+    void offer(LeasedSampleBlock block) {
+        offer(null, block);
+    }
+
+    private void offer(ComplexSampleBlock legacy, LeasedSampleBlock leased) {
         submitting = true;
         try {
             if (!accepting) return;
-            if (block.complexSamples() == 0) return;
+            int count = leased == null ? legacy.complexSamples() : leased.complexSamples();
+            if (count == 0) return;
             long next = tail;
-            if (block.complexSamples() > settings.blockSamples() || next - head == queue.length) {
+            if (count > settings.blockSamples() || next - head == queue.length) {
                 fail(new IOException("CF32 recording queue overflow: " + file));
                 return;
             }
+            // Retain before publication; this path does not take the pool lock.
+            Object block = leased == null ? legacy : leased.retain();
             queue[(int) (next % queue.length)] = block;
-            acceptedSamples += block.complexSamples();
+            acceptedSamples += count;
             tail = next + 1;
             highWaterBytes = Math.max(highWaterBytes, Math.max(0, acceptedSamples * 8 - consumedBytes));
             // Batch wakeups as well as disk writes. A timed consumer poll covers
@@ -115,11 +130,21 @@ final class Cf32Recorder {
                     continue;
                 }
                 int slot = (int) (next % queue.length);
-                ComplexSampleBlock block = queue[slot];
+                Object block = queue[slot];
                 queue[slot] = null;
-                consumedBytes += block.complexSamples() * 8L;
+                int count = block instanceof LeasedSampleBlock leased ? leased.complexSamples()
+                        : ((ComplexSampleBlock) block).complexSamples();
+                consumedBytes += count * 8L;
                 head = next + 1;
-                serialize(block);
+                if (block instanceof LeasedSampleBlock leased) {
+                    try (leased) {
+                        try {
+                            leased.withView(view -> {
+                                try { serialize(view); } catch (IOException e) { throw new UncheckedIOException(e); }
+                            });
+                        } catch (UncheckedIOException e) { throw e.getCause(); }
+                    }
+                } else serialize((ComplexSampleBlock) block);
             }
             flush();
         } catch (Throwable e) {
@@ -147,7 +172,7 @@ final class Cf32Recorder {
         }
     }
 
-    private void serialize(ComplexSampleBlock block) throws IOException {
+    private void serialize(IqSampleView block) throws IOException {
         for (int n = 0; n < block.complexSamples(); n++) {
             if (buffer.remaining() < 8) flush();
             buffer.putInt(Float.floatToRawIntBits(block.i(n)));
@@ -201,6 +226,9 @@ final class Cf32Recorder {
     }
 
     private void release() {
+        if (queue != null) for (Object block : queue) {
+            if (block instanceof LeasedSampleBlock leased) leased.close();
+        }
         queue = null;
         buffer = null;
         consumedBytes = acceptedSamples * 8;

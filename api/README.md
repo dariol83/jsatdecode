@@ -19,10 +19,11 @@ source providers through the source service while retaining diagnostic behavior.
 
 ### Opt-in IQ buffer ownership
 
-`IqBufferPool` and `IqBufferLease` provide an experimental, explicitly leased
-alternative for new code; the existing source, decoder, Inspector and recorder
-paths still use `ComplexSampleBlock` and its unchanged defensive copies. The pool
-budget covers the float payload of both checked-out and retained idle arrays.
+`IqBufferPool` and `IqBufferLease` provide explicitly leased storage. The file
+and FMComms2 sources, runtime and Inspector use this path when both sides opt in.
+Legacy `ComplexSampleBlock` construction and `iq()` continue to make defensive
+copies, and a legacy sink receives its own independent block. The pool budget
+covers the float payload of both checked-out and retained idle arrays.
 Power-of-two capacity classes are charged in full; idle classes may be evicted
 to make room. `tryAcquire` returns empty rather than waiting for capacity, and
 allocation errors propagate. Array/object overhead and evicted arrays awaiting
@@ -37,23 +38,45 @@ separate lease **before** enqueueing it and close that lease on completion,
 rejection, cancellation, or failure. Every lease must be closed exactly once;
 duplicate closes fail and increment `invalidReleases`. Closing a pool prevents
 new acquisitions and discards idle arrays, while outstanding leases stay valid
-until their own last close.
+until their own last close. Scoped access is valid only on the callback thread
+and only until that callback returns; the backing array is never exposed.
 
 ```java
 try (IqBufferPool pool = new IqBufferPool(32_768);
      IqBufferLease lease = pool.tryAcquire(4096).orElseThrow()) {
-    // Fill all samples that will be published.
-    for (int n = 0; n < 4096; n++) lease.put(n, 0.0f, 0.0f);
+    lease.withWriteAccess(samples -> {
+        for (int n = 0; n < 4096; n++) samples.put(n, 0.0f, 0.0f);
+    });
     lease.publish(0, 4096);
-    // Only when calling a legacy sink, make an independent legacy block.
-    ComplexSampleBlock legacy = lease.toComplexSampleBlock(0, timestampNanos, sampleRate);
+    try (LeasedSampleBlock block = LeasedSampleBlock.from(lease, 0, timestampNanos, sampleRate)) {
+        leasedSink.accept(block); // borrows until accept returns
+    }
 }
 ```
 
-Pool statistics distinguish outstanding leases, distinct active array bytes,
+`LeasedSampleSource` installs a synchronous borrowed-block sink. A
+`LeasedDecoder` consumes the same block without copying; the runtime adapts
+other decoders through the legacy copy boundary. A consumer uses
+`block.withView(...)` for synchronous indexed reads. Before an asynchronous
+handoff, it calls `block.retain()`, publishes that independently closeable
+claim, and closes it exactly once after the final read or rejection. Retaining
+a block and rejecting it while the producer still owns the borrowed block use
+atomics without taking the pool monitor. A retained block may outlive its source.
+A retain racing a close can succeed or fail; a successful claim remains valid
+independently of the closed block.
+
+Pool statistics distinguish underlying pool leases, distinct active array bytes,
 idle retained bytes, peak values, allocations, reuse, exhaustion and invalid
-releases. The current implementation synchronizes indexed access with closure and
-recycling; its performance must be qualified before use in a production DSP path.
+releases. Several retained `LeasedSampleBlock` claims share one underlying pool
+lease, which remains outstanding until the final claim closes. Source
+`leasedStatistics()` reports successful leased deliveries and pool accounting;
+read it on a management thread because obtaining the snapshot takes the pool
+lock. File-source budgets allow 128 MiB for size-class rounding in Inspector's
+64 MiB queue plus three maximum blocks. FMComms2 adds twice its configured
+source-recording queue budget, 128 MiB for Inspector and four maximum blocks.
+Inspector decimation has a 152 MiB output pool; runtime rotation has a 256 MiB
+pool. These are payload caps, allocated lazily. Exhaustion fails acquisition
+explicitly; no block is silently dropped.
 
 `SampleSourceFactory.configurationProperties()` optionally returns ordered
 `SourcePropertyDescriptor` values: the existing unprefixed key, label, type, unit,

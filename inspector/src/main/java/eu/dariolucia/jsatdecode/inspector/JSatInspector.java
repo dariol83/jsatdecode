@@ -100,7 +100,7 @@ public final class JSatInspector {
                         analysis = next;
                         next.updateSettings(settings);
                     }
-                    receiver = new InspectorReceiver(requested, next::accept);
+                    receiver = InspectorReceiver.withBorrowedAnalysis(requested, next::accept);
                     if (requested.source() != null) next.sourceMetadata(receiver.sampleRate(), receiver.centerFrequency());
                     next.start();
                     receiver.start();

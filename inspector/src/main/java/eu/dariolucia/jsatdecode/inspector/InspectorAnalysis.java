@@ -1,6 +1,6 @@
 package eu.dariolucia.jsatdecode.inspector;
 
-import eu.dariolucia.jsatdecode.api.source.ComplexSampleBlock;
+import eu.dariolucia.jsatdecode.api.source.IqSampleView;
 import eu.dariolucia.jsatdecode.api.taps.ComplexSnapshot;
 import eu.dariolucia.jsatdecode.core.buffers.ComplexFloatRingBuffer;
 import eu.dariolucia.jsatdecode.dsp.fft.ComplexFft;
@@ -61,7 +61,7 @@ final class InspectorAnalysis implements AutoCloseable {
     /* Source callback: bounded primitive copies only. The ring intentionally
        overwrites observation history; it is independent of lossless recording.
        Exactly one externally synchronized source thread may call accept. */
-    void accept(ComplexSampleBlock block) {
+    void accept(IqSampleView block) {
         Input target = input;
         if (target.ring.sampleRate() != block.sampleRate()) input = target = new Input(block.sampleRate());
         int count = Math.min(block.complexSamples(), MAX_SAMPLES);

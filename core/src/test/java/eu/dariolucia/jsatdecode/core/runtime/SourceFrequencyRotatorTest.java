@@ -4,6 +4,10 @@ import eu.dariolucia.jsatdecode.api.config.Configuration;
 import eu.dariolucia.jsatdecode.api.config.ConfigurationException;
 import eu.dariolucia.jsatdecode.api.source.ComplexSampleBlock;
 import eu.dariolucia.jsatdecode.api.source.SampleSink;
+import eu.dariolucia.jsatdecode.api.source.IqBufferLease;
+import eu.dariolucia.jsatdecode.api.source.IqBufferPool;
+import eu.dariolucia.jsatdecode.api.source.LeasedSampleBlock;
+import eu.dariolucia.jsatdecode.api.source.LeasedSampleSink;
 
 import java.io.DataInputStream;
 import java.nio.ByteBuffer;
@@ -25,6 +29,7 @@ public final class SourceFrequencyRotatorTest {
      */
     public static void main(String[] args) throws Exception {
         bypass();
+        leasedMatchesLegacy();
         cardinalShifts();
         tones();
         rateChanges();
@@ -32,6 +37,69 @@ public final class SourceFrequencyRotatorTest {
         configuration();
         fileIntegration();
         System.out.println("SourceFrequencyRotatorTest passed");
+    }
+
+    private static void leasedMatchesLegacy() {
+        for (double offset : new double[]{0, -0.0, 12_345.25, -12_345.25, 125_000, 250_000}) {
+            IqBufferPool inputPool = new IqBufferPool(1_000_000);
+            IqBufferPool outputPool = new IqBufferPool(1_000_000);
+            List<ComplexSampleBlock> expected = new ArrayList<>();
+            List<LeasedSampleBlock> actual = new ArrayList<>();
+            SampleSink oldRotator = SourceFrequencyRotator.connect(expected::add, offset);
+            LeasedSampleSink sink = block -> actual.add(block.retain());
+            LeasedSampleSink newRotator = LeasedFrequencyRotator.connect(sink, offset, outputPool);
+            if (offset == 0) check(newRotator == sink, "leased zero-offset uses the same sink and storage");
+            Random random = new Random(425);
+            int position = 0;
+            try {
+                for (int count : new int[]{0, 1, 510, 2, 997, 17}) {
+                    float[] iq = new float[count * 2];
+                    for (int n = 0; n < iq.length; n++) iq[n] = random.nextFloat() * 2 - 1;
+                    if (count > 0) { iq[0] = -0.0f; iq[1] = Float.intBitsToFloat(0x7fc01234); }
+                    if (count > 1) { iq[2] = Float.POSITIVE_INFINITY; iq[3] = Float.NEGATIVE_INFINITY; }
+                    double rate = position > 511 ? 400_000 : 500_000;
+                    ComplexSampleBlock original = new ComplexSampleBlock(iq, count, position, position * 2000L, rate);
+                    oldRotator.accept(original);
+                    try (IqBufferLease lease = inputPool.tryAcquire(count).orElseThrow()) {
+                        lease.putInterleaved(iq, 0, 0, count);
+                        lease.publish(0, count);
+                        try (LeasedSampleBlock block = LeasedSampleBlock.from(lease, position, position * 2000L, rate)) {
+                            newRotator.accept(block);
+                            block.withView(view -> {
+                                for (int n = 0; n < count; n++) {
+                                    check(Float.floatToRawIntBits(view.i(n)) == Float.floatToRawIntBits(iq[n * 2])
+                                            && Float.floatToRawIntBits(view.q(n)) == Float.floatToRawIntBits(iq[n * 2 + 1]),
+                                            "translation never overwrites input");
+                                }
+                            });
+                        }
+                    }
+                    position += count;
+                }
+                inputPool.close();
+                outputPool.close();
+                check(expected.size() == actual.size(), "leased and legacy deliver the same blocks");
+                for (int n = 0; n < expected.size(); n++) {
+                    ComplexSampleBlock prior = expected.get(n);
+                    actual.get(n).withView(view -> {
+                        check(view.sampleIndex() == prior.sampleIndex() && view.timestampNanos() == prior.timestampNanos()
+                                && view.sampleRate() == prior.sampleRate() && view.complexSamples() == prior.complexSamples(),
+                                "leased rotator retains metadata");
+                        for (int j = 0; j < view.complexSamples(); j++) {
+                            check(Float.floatToRawIntBits(view.i(j)) == Float.floatToRawIntBits(prior.i(j))
+                                    && Float.floatToRawIntBits(view.q(j)) == Float.floatToRawIntBits(prior.q(j)),
+                                    "leased rotation is bit-identical to legacy across block and rate changes");
+                        }
+                    });
+                }
+            } finally {
+                actual.forEach(LeasedSampleBlock::close);
+                inputPool.close();
+                outputPool.close();
+            }
+            check(inputPool.statistics().outstandingLeases() == 0 && outputPool.statistics().outstandingLeases() == 0,
+                    "rotator pools fully drain");
+        }
     }
 
     private static void bypass() {

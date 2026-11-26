@@ -1,7 +1,9 @@
 import eu.dariolucia.jsatdecode.api.config.Configuration;
 import eu.dariolucia.jsatdecode.api.decoder.Decoder;
+import eu.dariolucia.jsatdecode.api.decoder.LeasedDecoder;
 import eu.dariolucia.jsatdecode.api.lifecycle.ComponentState;
 import eu.dariolucia.jsatdecode.api.source.ManagedSampleSource;
+import eu.dariolucia.jsatdecode.api.source.LeasedSampleSource;
 import eu.dariolucia.jsatdecode.elektrol.ElektroLGgakDecoder;
 import eu.dariolucia.jsatdecode.hinode.HinodeDecoder;
 import eu.dariolucia.jsatdecode.source.cs16.Cs16SampleSource;
@@ -34,7 +36,9 @@ public final class IqMissionWarmBenchmark {
                      : new ElektroLGgakDecoder(new Configuration(Map.of("sample_rate_hz", rate, "dcblocker", false)));
              ManagedSampleSource source = hinode ? new WavSampleSource(settings) : new Cs16SampleSource(settings)) {
             decoder.setFrameSink(ignored -> { });
-            source.setSampleSink(decoder::accept);
+            if (Boolean.getBoolean("jsatdecode.replay.leased"))
+                ((LeasedSampleSource) source).setLeasedSampleSink(((LeasedDecoder) decoder)::acceptLeased);
+            else source.setSampleSink(decoder::accept);
             decoder.start();
             source.start();
             boolean completed = hinode ? ((WavSampleSource) source).awaitCompletion(Duration.ofMinutes(10))

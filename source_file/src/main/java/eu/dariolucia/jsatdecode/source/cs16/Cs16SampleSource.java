@@ -34,7 +34,7 @@ import java.util.concurrent.TimeUnit;
  * float32 in the range [-1.0, 1.0]. File format matches SatDump and SDR++ CS16 format:
  * headerless, little-endian, 4 bytes per complex sample.
  */
-public final class Cs16SampleSource implements ManagedSampleSource {
+public final class Cs16SampleSource implements ManagedSampleSource, LeasedSampleSource {
     private static final float SCALE = 1.0f / 32768.0f;
     private final Object lifecycle = new Object();
     private final SourceDescriptor descriptor;
@@ -51,6 +51,9 @@ public final class Cs16SampleSource implements ManagedSampleSource {
     private volatile long startNanos, endNanos;
     private volatile Throwable failure;
     private SampleSink sink;
+    private LeasedSampleSink leasedSink;
+    private volatile IqBufferPool iqPool;
+    private volatile long leasedBlocks;
     private Thread worker;
 
     /**
@@ -138,11 +141,28 @@ public final class Cs16SampleSource implements ManagedSampleSource {
         synchronized (lifecycle) {
             if (state != ComponentState.CONFIGURED) throw new IllegalStateException("Sink wiring requires CONFIGURED");
             this.sink = Objects.requireNonNull(sink, "sink");
+            this.leasedSink = null;
         }
     }
 
+    @Override
+    public void setLeasedSampleSink(LeasedSampleSink sink) {
+        synchronized (lifecycle) {
+            if (state != ComponentState.CONFIGURED) throw new IllegalStateException("Sink wiring requires CONFIGURED");
+            this.leasedSink = Objects.requireNonNull(sink, "sink");
+            this.sink = null;
+        }
+    }
+
+    @Override
+    public Optional<LeasedSampleSource.Statistics> leasedStatistics() {
+        IqBufferPool pool = iqPool;
+        return pool == null ? Optional.empty() : Optional.of(new LeasedSampleSource.Statistics(leasedBlocks, pool.statistics()));
+    }
+
     /**
-     * Starts a one-shot worker with bounded reusable byte/float staging buffers.
+     * Starts a one-shot worker with bounded byte staging and either reusable
+     * legacy float staging or a bounded pool for leased samples.
      *
      * @throws LifecycleException unless CONFIGURED with a sink installed
      * @throws SourceException    if opening or starting fails; state becomes FAILED
@@ -150,7 +170,7 @@ public final class Cs16SampleSource implements ManagedSampleSource {
     @Override
     public void start() {
         synchronized (lifecycle) {
-            if (state != ComponentState.CONFIGURED || sink == null)
+            if (state != ComponentState.CONFIGURED || sink == null && leasedSink == null)
                 throw new LifecycleException("Start requires CONFIGURED and an installed sink");
             state = ComponentState.STARTING;
             FileChannel channel = null;
@@ -160,7 +180,12 @@ public final class Cs16SampleSource implements ManagedSampleSource {
                     throw new EOFException("Source was truncated before start");
                 // CS16: 4 bytes per complex sample (2 bytes I + 2 bytes Q)
                 ByteBuffer bytes = ByteBuffer.allocate(settings.blockSamples() * 4).order(ByteOrder.LITTLE_ENDIAN);
-                float[] iq = new float[settings.blockSamples() * 2];
+                float[] iq = sink == null ? null : new float[settings.blockSamples() * 2];
+                if (leasedSink != null) {
+                    long capacity = (long) Integer.highestOneBit(settings.blockSamples() - 1) * 2;
+                    if (capacity == 0) capacity = 1;
+                    iqPool = new IqBufferPool(128L * 1024 * 1024 + 3 * capacity * 8);
+                }
                 FileChannel owned = channel;
                 worker = new Thread(() -> run(owned, bytes, iq), "jsatdecode-source-" + descriptor.id());
                 startNanos = System.nanoTime();
@@ -169,6 +194,7 @@ public final class Cs16SampleSource implements ManagedSampleSource {
                 state = ComponentState.RUNNING;
                 worker.start();
             } catch (IOException | RuntimeException | Error e) {
+                if (iqPool != null) iqPool.close();
                 if (channel != null) {
                     try {
                         channel.close();
@@ -313,6 +339,7 @@ public final class Cs16SampleSource implements ManagedSampleSource {
         } catch (IOException | RuntimeException | Error e) {
             if (!stopRequested || !(e instanceof AsynchronousCloseException)) problem = e;
         } finally {
+            if (iqPool != null) iqPool.close();
             endNanos = System.nanoTime();
             finished = true;
             synchronized (lifecycle) {
@@ -346,16 +373,28 @@ public final class Cs16SampleSource implements ManagedSampleSource {
             bytes.clear().limit(count * 4);
             readFully(channel, bytes, dataOffset + index * 4);
             bytes.flip();
-            // Convert signed 16-bit integers to float32 in [-1.0, 1.0] range
-            for (int n = 0; n < count * 2; n++) {
-                short sample = bytes.getShort();
-                iq[n] = sample * SCALE;
+            if (leasedSink == null) {
+                for (int n = 0; n < count * 2; n++) iq[n] = bytes.getShort() * SCALE;
+                if (settings.realtime()) pace(nextDelivered / sampleRate);
+                if (stopRequested) return;
+                long timestamp = Math.addExact(startUtcNanos, (long) (delivered / sampleRate * 1e9));
+                sink.accept(new ComplexSampleBlock(iq, count, index, timestamp, sampleRate));
+            } else {
+                try (IqBufferLease lease = iqPool.tryAcquire(count).orElseThrow(
+                        () -> new SourceException("IQ buffer pool exhausted"))) {
+                    lease.withWriteAccess(access -> {
+                        for (int n = 0; n < count; n++) access.put(n, bytes.getShort() * SCALE, bytes.getShort() * SCALE);
+                    });
+                    if (settings.realtime()) pace(nextDelivered / sampleRate);
+                    if (stopRequested) return;
+                    lease.publish(0, count);
+                    long timestamp = Math.addExact(startUtcNanos, (long) (delivered / sampleRate * 1e9));
+                    try (LeasedSampleBlock block = LeasedSampleBlock.from(lease, index, timestamp, sampleRate)) {
+                        leasedSink.accept(block);
+                        leasedBlocks++;
+                    }
+                }
             }
-            if (settings.realtime()) pace(nextDelivered / sampleRate);
-            if (stopRequested) return;
-            // The immutable API block owns its sample copy; reuse staging only after delivery.
-            long timestamp = Math.addExact(startUtcNanos, (long) (delivered / sampleRate * 1e9));
-            sink.accept(new ComplexSampleBlock(iq, count, index, timestamp, sampleRate));
             delivered = nextDelivered;
             index += count;
             samples.set(delivered);

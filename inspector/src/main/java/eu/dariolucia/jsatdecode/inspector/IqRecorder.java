@@ -1,8 +1,11 @@
 package eu.dariolucia.jsatdecode.inspector;
 
 import eu.dariolucia.jsatdecode.api.source.ComplexSampleBlock;
+import eu.dariolucia.jsatdecode.api.source.IqSampleView;
+import eu.dariolucia.jsatdecode.api.source.LeasedSampleBlock;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -20,7 +23,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
 
-/* Inspector-only recording. One acquisition producer publishes immutable block references;
+/* Inspector-only recording. One acquisition producer publishes immutable blocks or retained leases;
    only the writer touches the channel. Management stop gates any concurrent offer before
    draining. A finite queue cannot cover an indefinitely stalled disk: overflow explicitly
    fails this recording, preserving reception and the contiguous accepted prefix. */
@@ -35,7 +38,7 @@ final class IqRecorder implements AutoCloseable {
     private static final int ACCEPTING = 1, SUBMITTING = 2;
     private final Path file;
     private final RecordingFormat format;
-    private final ComplexSampleBlock[] queue;
+    private final Object[] queue;
     private final ByteBuffer bytes;
     private final SeekableByteChannel channel;
     private final AtomicInteger gate = new AtomicInteger(ACCEPTING);
@@ -76,7 +79,7 @@ final class IqRecorder implements AutoCloseable {
         String gainText = BigDecimal.valueOf(gain).stripTrailingZeros().toPlainString();
         file = Objects.requireNonNull(folder).resolve(center + "_" + rate + "_" + gainText + "_" + UTC.format(started) + format.extension());
         this.capacityBytes = capacityBytes;
-        queue = new ComplexSampleBlock[slots];
+        queue = new Object[slots];
         bytes = ByteBuffer.allocateDirect(writeBytes).order(ByteOrder.LITTLE_ENDIAN);
         Files.createDirectories(folder);
         channel = Objects.requireNonNull(files.open(file));
@@ -105,9 +108,18 @@ final class IqRecorder implements AutoCloseable {
 
     // Single producer; no filesystem calls, logging, waiting, copying or monitor acquisition.
     void offer(ComplexSampleBlock block) {
-        if (block.complexSamples() == 0 || !gate.compareAndSet(ACCEPTING, ACCEPTING | SUBMITTING)) return;
+        offer(block, null);
+    }
+
+    void offer(LeasedSampleBlock block) {
+        offer(null, block);
+    }
+
+    private void offer(ComplexSampleBlock legacy, LeasedSampleBlock leased) {
+        int count = leased == null ? legacy.complexSamples() : leased.complexSamples();
+        if (count == 0 || !gate.compareAndSet(ACCEPTING, ACCEPTING | SUBMITTING)) return;
         try {
-            long size = block.complexSamples() * 8L;
+            long size = count * 8L;
             long next = tail;
             // References retain float IQ in either output format; bound that memory,
             // rather than allowing CS16 to double the retained source-block storage.
@@ -115,9 +127,9 @@ final class IqRecorder implements AutoCloseable {
                 fail(new IOException(format + " buffer overrun: recording stopped because its disk queue is full: " + file));
                 return;
             }
-            queue[(int) (next % queue.length)] = block;
+            queue[(int) (next % queue.length)] = leased == null ? legacy : leased.retain();
             acceptedMemoryBytes += size;
-            acceptedBytes += block.complexSamples() * (long) format.bytesPerComplexSample();
+            acceptedBytes += count * (long) format.bytesPerComplexSample();
             tail = next + 1; // Release-publishes the immutable block and accounting.
             LockSupport.unpark(worker);
         } finally {
@@ -143,14 +155,21 @@ final class IqRecorder implements AutoCloseable {
                     continue;
                 }
                 int slot = (int) (next % queue.length);
-                ComplexSampleBlock block = queue[slot];
+                Object block = queue[slot];
                 queue[slot] = null;
-                consumedMemoryBytes += block.complexSamples() * 8L;
+                int count = block instanceof LeasedSampleBlock leased ? leased.complexSamples()
+                        : ((ComplexSampleBlock) block).complexSamples();
+                consumedMemoryBytes += count * 8L;
                 head = next + 1; // Producer may reuse this slot after this release.
-                for (int n = 0; n < block.complexSamples(); n++) {
-                    if (bytes.remaining() < format.bytesPerComplexSample()) flush();
-                    format.putSample(bytes, block.i(n), block.q(n));
-                }
+                if (block instanceof LeasedSampleBlock leased) {
+                    try (leased) {
+                        try {
+                            leased.withView(view -> {
+                                try { serialize(view); } catch (IOException e) { throw new UncheckedIOException(e); }
+                            });
+                        } catch (UncheckedIOException e) { throw e.getCause(); }
+                    }
+                } else serialize((ComplexSampleBlock) block);
             }
             flush();
         } catch (Throwable e) {
@@ -167,9 +186,20 @@ final class IqRecorder implements AutoCloseable {
             gate.getAndUpdate(value -> value & ~ACCEPTING);
             while ((gate.get() & SUBMITTING) != 0) LockSupport.parkNanos(100_000L);
             try { channel.close(); } catch (Throwable e) { failure.compareAndSet(null, e); }
-            java.util.Arrays.fill(queue, null);
+            for (int n = 0; n < queue.length; n++) {
+                Object block = queue[n];
+                queue[n] = null;
+                if (block instanceof LeasedSampleBlock leased) leased.close();
+            }
             complete = failure.get() == null;
             pollDiagnostics();
+        }
+    }
+
+    private void serialize(IqSampleView block) throws IOException {
+        for (int n = 0; n < block.complexSamples(); n++) {
+            if (bytes.remaining() < format.bytesPerComplexSample()) flush();
+            format.putSample(bytes, block.i(n), block.q(n));
         }
     }
 

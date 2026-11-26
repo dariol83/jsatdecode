@@ -3,6 +3,9 @@ package eu.dariolucia.jsatdecode.inspector;
 import eu.dariolucia.jsatdecode.api.config.Configuration;
 import eu.dariolucia.jsatdecode.api.lifecycle.ComponentState;
 import eu.dariolucia.jsatdecode.api.source.ComplexSampleBlock;
+import eu.dariolucia.jsatdecode.api.source.IqSampleView;
+import eu.dariolucia.jsatdecode.api.source.LeasedSampleBlock;
+import eu.dariolucia.jsatdecode.api.source.LeasedSampleSource;
 import eu.dariolucia.jsatdecode.api.source.ManagedSampleSource;
 import eu.dariolucia.jsatdecode.api.source.RuntimeConfigurableSampleSource;
 import eu.dariolucia.jsatdecode.api.source.SampleSource;
@@ -27,7 +30,7 @@ final class InspectorReceiver implements AutoCloseable {
     private final SampleSource source;
     private final SampleSourceFactory factory;
     private final InspectorDecimator decimator;
-    private final Consumer<ComplexSampleBlock> analysisSink;
+    private final Consumer<IqSampleView> analysisSink;
     private final AtomicReference<IqRecorder> activeRecorder = new AtomicReference<>();
     private final double acquisitionRate;
     private volatile double observedRate;
@@ -43,6 +46,19 @@ final class InspectorReceiver implements AutoCloseable {
     private Throwable reportedFailure;
 
     InspectorReceiver(InspectorSettings settings, Consumer<ComplexSampleBlock> analysisSink) {
+        this(settings, adaptLegacy(analysisSink), true);
+    }
+
+    private static Consumer<IqSampleView> adaptLegacy(Consumer<ComplexSampleBlock> sink) {
+        Objects.requireNonNull(sink, "analysisSink");
+        return view -> sink.accept(snapshot(view));
+    }
+
+    static InspectorReceiver withBorrowedAnalysis(InspectorSettings settings, Consumer<IqSampleView> analysisSink) {
+        return new InspectorReceiver(settings, analysisSink, true);
+    }
+
+    private InspectorReceiver(InspectorSettings settings, Consumer<IqSampleView> analysisSink, boolean borrowed) {
         this.settings = Objects.requireNonNull(settings);
         this.analysisSink = Objects.requireNonNull(analysisSink);
         Configuration configuration = sourceConfiguration(settings);
@@ -61,7 +77,18 @@ final class InspectorReceiver implements AutoCloseable {
         Object selectedSamples = metadata.get("source.selected_samples");
         repeatEnd = configuration.asMap().containsKey("repeat") && configuration.getBoolean("repeat")
                 && selectedSamples instanceof Number number ? Math.addExact(repeatStart, number.longValue()) : -1;
-        source.setSampleSink(this::accept);
+        if (source instanceof LeasedSampleSource leased) leased.setLeasedSampleSink(this::acceptLeased);
+        else source.setSampleSink(this::accept);
+    }
+
+    private static ComplexSampleBlock snapshot(IqSampleView view) {
+        if (view instanceof ComplexSampleBlock block) return block;
+        float[] iq = new float[view.complexSamples() * 2];
+        for (int n = 0; n < view.complexSamples(); n++) {
+            iq[2 * n] = view.i(n);
+            iq[2 * n + 1] = view.q(n);
+        }
+        return new ComplexSampleBlock(iq, view.complexSamples(), view.sampleIndex(), view.timestampNanos(), view.sampleRate());
     }
 
     // AD9361 FIR-Off rates below 2.084 MHz are unsupported by the shared adapter.
@@ -98,6 +125,14 @@ final class InspectorReceiver implements AutoCloseable {
 
     // Visible to package tests for exact streaming/decimation contracts without radio hardware.
     void accept(ComplexSampleBlock block) {
+        acceptView(block, null);
+    }
+
+    private void acceptLeased(LeasedSampleBlock block) {
+        block.withView(view -> acceptView(view, block));
+    }
+
+    private void acceptView(IqSampleView block, LeasedSampleBlock borrowed) {
         if (failure != null || closed) return;
         // File sources retain recording-relative indices when repeating a segment.
         boolean rewind = repeatEnd >= 0 && expectedIndex == repeatEnd && block.sampleIndex() == repeatStart;
@@ -113,11 +148,25 @@ final class InspectorReceiver implements AutoCloseable {
         received = true;
         observedRate = block.sampleRate();
         expectedIndex = block.sampleIndex() + block.complexSamples();
-        ComplexSampleBlock effective = decimator.process(block);
-        if (effective.complexSamples() == 0) return;
-        IqRecorder recording = activeRecorder.get();
-        if (recording != null) recording.offer(effective);
-        analysisSink.accept(effective);
+        if (borrowed == null) {
+            ComplexSampleBlock effective = decimator.process((ComplexSampleBlock) block);
+            if (effective.complexSamples() == 0) return;
+            IqRecorder recording = activeRecorder.get();
+            if (recording != null) recording.offer(effective);
+            analysisSink.accept(effective);
+        } else if (decimator.bypassed()) {
+            if (block.complexSamples() == 0) return;
+            IqRecorder recording = activeRecorder.get();
+            if (recording != null) recording.offer(borrowed);
+            analysisSink.accept(block);
+        } else {
+            try (LeasedSampleBlock effective = decimator.processLeased(block)) {
+                if (effective.complexSamples() == 0) return;
+                IqRecorder recording = activeRecorder.get();
+                if (recording != null) recording.offer(effective);
+                effective.withView(analysisSink);
+            }
+        }
     }
 
     Path startRecording(Path folder) throws IOException {
@@ -220,6 +269,7 @@ final class InspectorReceiver implements AutoCloseable {
         closed = true;
         try { source.close(); } finally {
             stopRecording();
+            decimator.close();
             pollDiagnostics();
         }
     }

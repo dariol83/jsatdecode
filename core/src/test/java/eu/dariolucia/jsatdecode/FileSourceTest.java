@@ -36,6 +36,7 @@ public final class FileSourceTest {
             cs16Samples(directory);
             specialValues(directory);
             cs16SpecialValues(directory);
+            leasedSources(directory);
             repeat(directory);
             cs16Repeat(directory);
             wavVariants(directory);
@@ -58,6 +59,103 @@ public final class FileSourceTest {
         values.put("file", file.toString());
         for (int n = 0; n < settings.length; n += 2) values.put((String) settings[n], settings[n + 1]);
         return new Configuration(values);
+    }
+
+    private static void leasedSources(Path directory) throws Exception {
+        float[] iq = FileSourceFixtures.samples(21);
+        iq[0] = Float.intBitsToFloat(0x7fc01234);
+        iq[1] = -0.0f;
+        Path cf32 = directory.resolve("leased.cf32"), wav = directory.resolve("leased.wav");
+        Path rf64 = directory.resolve("leased.rf64"), cs16 = directory.resolve("leased.cs16");
+        Files.write(cf32, FileSourceFixtures.floats(iq));
+        Files.write(wav, FileSourceFixtures.wav(iq, 48_000));
+        Files.write(rf64, FileSourceFixtures.rf64Header(iq.length * 4L, iq.length / 2, 48_000));
+        Files.write(rf64, FileSourceFixtures.floats(iq), StandardOpenOption.APPEND);
+        Files.write(cs16, FileSourceFixtures.cs16(iq));
+        for (int format = 0; format < 4; format++) {
+            Path file = List.of(cf32, wav, rf64, cs16).get(format);
+            for (long start : new long[]{0, 1}) for (boolean repeat : new boolean[]{false, true}) {
+                Configuration settings = config(file, "sample_rate", 48_000, "block_samples", 7,
+                        "start_offset", start, "length", 19, "repeat", repeat);
+                List<ComplexSampleBlock> expected = collectAny(fileSource(format, settings), false, repeat);
+                List<ComplexSampleBlock> actual = collectAny(fileSource(format, settings), true, repeat);
+                check(expected.size() == actual.size());
+                long expectedStart = expected.getFirst().timestampNanos(), actualStart = actual.getFirst().timestampNanos();
+                for (int n = 0; n < expected.size(); n++) {
+                    ComplexSampleBlock left = expected.get(n), right = actual.get(n);
+                    check(left.complexSamples() == right.complexSamples() && left.sampleIndex() == right.sampleIndex());
+                    check(left.timestampNanos() - expectedStart == right.timestampNanos() - actualStart);
+                    check(left.sampleRate() == right.sampleRate());
+                    for (int sample = 0; sample < left.complexSamples(); sample++) {
+                        check(Float.floatToRawIntBits(left.i(sample)) == Float.floatToRawIntBits(right.i(sample)));
+                        check(Float.floatToRawIntBits(left.q(sample)) == Float.floatToRawIntBits(right.q(sample)));
+                    }
+                }
+            }
+            Configuration empty = config(file, "sample_rate", 48_000, "start_offset", 21);
+            check(collectAny(fileSource(format, empty), true, false).isEmpty());
+            leasedSourceFailure(fileSource(format, config(file, "sample_rate", 48_000, "block_samples", 7)));
+        }
+    }
+
+    private static void leasedSourceFailure(ManagedSampleSource source) throws Exception {
+        IllegalStateException failure = new IllegalStateException("deliberate leased sink failure");
+        LeasedSampleBlock[] retained = new LeasedSampleBlock[1];
+        try (source) {
+            ((LeasedSampleSource) source).setLeasedSampleSink(block -> {
+                retained[0] = block.retain();
+                throw failure;
+            });
+            source.start();
+            boolean completed = source instanceof AbstractFileSampleSource file ? file.awaitCompletion(Duration.ofSeconds(10))
+                    : ((Cs16SampleSource) source).awaitCompletion(Duration.ofSeconds(10));
+            check(completed && source.failure().orElseThrow() == failure);
+            check(((LeasedSampleSource) source).leasedStatistics().orElseThrow().pool().outstandingLeases() == 1);
+            retained[0].withView(view -> check(view.complexSamples() == 7));
+        } finally {
+            if (retained[0] != null) retained[0].close();
+        }
+        check(((LeasedSampleSource) source).leasedStatistics().orElseThrow().pool().outstandingLeases() == 0);
+    }
+
+    private static ManagedSampleSource fileSource(int format, Configuration settings) {
+        return switch (format) {
+            case 0 -> new Cf32SampleSource(settings);
+            case 1, 2 -> new WavSampleSource(settings);
+            default -> new Cs16SampleSource(settings);
+        };
+    }
+
+    private static List<ComplexSampleBlock> collectAny(ManagedSampleSource source, boolean leased, boolean repeat) throws Exception {
+        List<ComplexSampleBlock> blocks = new ArrayList<>();
+        List<LeasedSampleBlock> held = new ArrayList<>();
+        try (source) {
+            if (leased) ((LeasedSampleSource) source).setLeasedSampleSink(block -> {
+                held.add(block.retain());
+                if (repeat && held.size() == 6) source.requestStop();
+            });
+            else source.setSampleSink(block -> {
+                blocks.add(block);
+                if (repeat && blocks.size() == 6) source.requestStop();
+            });
+            source.start();
+            boolean completed = source instanceof AbstractFileSampleSource file ? file.awaitCompletion(Duration.ofSeconds(10))
+                    : ((Cs16SampleSource) source).awaitCompletion(Duration.ofSeconds(10));
+            check(completed);
+            source.stop();
+            if (source.failure().isPresent()) throw new AssertionError("Source failed", source.failure().orElseThrow());
+            if (leased) {
+                var stats = ((LeasedSampleSource) source).leasedStatistics().orElseThrow();
+                check(stats.deliveredBlocks() == held.size());
+                check(stats.pool().closed());
+                if (!held.isEmpty()) check(stats.pool().outstandingLeases() == held.size());
+                for (LeasedSampleBlock block : held) blocks.add(block.toComplexSampleBlock());
+            }
+        } finally {
+            for (LeasedSampleBlock block : held) block.close();
+        }
+        if (leased) check(((LeasedSampleSource) source).leasedStatistics().orElseThrow().pool().outstandingLeases() == 0);
+        return blocks;
     }
 
     private static void samplesAndRanges(Path directory) throws Exception {

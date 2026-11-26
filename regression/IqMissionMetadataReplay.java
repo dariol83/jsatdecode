@@ -1,9 +1,12 @@
 import eu.dariolucia.jsatdecode.api.config.Configuration;
 import eu.dariolucia.jsatdecode.api.decoder.Decoder;
+import eu.dariolucia.jsatdecode.api.decoder.LeasedDecoder;
 import eu.dariolucia.jsatdecode.api.frame.AnnotatedFrame;
 import eu.dariolucia.jsatdecode.api.lifecycle.ComponentState;
 import eu.dariolucia.jsatdecode.api.monitoring.DecoderStatusKeys;
 import eu.dariolucia.jsatdecode.api.source.ComplexSampleBlock;
+import eu.dariolucia.jsatdecode.api.source.IqSampleView;
+import eu.dariolucia.jsatdecode.api.source.LeasedSampleSource;
 import eu.dariolucia.jsatdecode.api.source.ManagedSampleSource;
 import eu.dariolucia.jsatdecode.elektrol.ElektroLGgakDecoder;
 import eu.dariolucia.jsatdecode.hinode.HinodeDecoder;
@@ -49,10 +52,17 @@ public final class IqMissionMetadataReplay {
              Decoder decoder = hinode ? new HinodeDecoder(new Configuration(Map.of()))
                      : new ElektroLGgakDecoder(new Configuration(Map.of("sample_rate_hz", rate, "dcblocker", false)));
              ManagedSampleSource source = hinode ? new WavSampleSource(sourceSettings) : new Cs16SampleSource(sourceSettings)) {
-            source.setSampleSink(block -> {
-                capture.block(block);
-                decoder.accept(block);
-            });
+            if (Boolean.getBoolean("jsatdecode.replay.leased")) {
+                ((LeasedSampleSource) source).setLeasedSampleSink(block -> {
+                    block.withView(capture::block);
+                    ((LeasedDecoder) decoder).acceptLeased(block);
+                });
+            } else {
+                source.setSampleSink(block -> {
+                    capture.block(block);
+                    decoder.accept(block);
+                });
+            }
             decoder.setFrameSink(capture::frame);
             decoder.start();
             long started = System.nanoTime();
@@ -74,6 +84,12 @@ public final class IqMissionMetadataReplay {
             }
             if (Files.size(input) != inputSize || !Files.getLastModifiedTime(input).equals(inputModified)) {
                 throw new IllegalStateException("Input changed during replay");
+            }
+            if (Boolean.getBoolean("jsatdecode.replay.leased")) {
+                var pool = ((LeasedSampleSource) source).leasedStatistics().orElseThrow();
+                if (pool.deliveredBlocks() != capture.blockCount || pool.pool().outstandingLeases() != 0)
+                    throw new IllegalStateException("Leased replay ownership/accounting mismatch: " + pool);
+                System.out.println("leased_diagnostics=" + pool);
             }
             capture.close();
             System.out.println("mission=" + args[0] + " samples=" + capture.samples + " blocks=" + capture.blockCount
@@ -116,7 +132,7 @@ public final class IqMissionMetadataReplay {
                     Files.newOutputStream(path, StandardOpenOption.CREATE_NEW), digest)));
         }
 
-        private void block(ComplexSampleBlock block) {
+        private void block(IqSampleView block) {
             if (!anchored) {
                 anchor = block.timestampNanos();
                 anchored = true;

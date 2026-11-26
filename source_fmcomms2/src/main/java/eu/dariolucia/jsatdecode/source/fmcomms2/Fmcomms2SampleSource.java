@@ -40,9 +40,10 @@ import java.util.concurrent.TimeUnit;
  * All delivered sample metadata, timestamps and durations use the output rate.
  *
  * <p>The management owner wires the sink and starts/configures hardware. One
- * worker owns subsequent READBUF and synchronous sample delivery; immutable
- * blocks may be retained by the sink. Reusable bounded byte/float staging has
- * no per-sample objects. Normal acquisition has no observation callback, FFT,
+ * worker owns subsequent READBUF and synchronous sample delivery. Legacy
+ * blocks can be retained; leased blocks must be explicitly retained for use
+ * after the callback. Bounded staging and pooled storage use no per-sample
+ * objects. Normal acquisition has no observation callback, FFT,
  * logging or UI work. Opt-in count-only diagnostics discard raw samples and
  * invoke a bounded counting callback per whole READBUF instead; no conversion,
  * recording or sink delivery occurs. Monitoring only reads cached fields. Decoding throughput
@@ -57,7 +58,7 @@ import java.util.concurrent.TimeUnit;
  * EOF. Original failure survives close. Lifecycle is one-shot and serialized by
  * the owner; concurrent stop may cancel startup. Polling never takes its lock.
  *
- * <p>Optional recording retains the existing immutable blocks in a bounded SPSC
+ * <p>Optional recording retains read-only block claims in a bounded SPSC
  * queue. A separate worker writes little-endian CF32 with no filesystem work or
  * extra IQ copy on acquisition. STOP_RECORDING isolates recording failures;
  * FAIL_SESSION retains a source failure and cancels acquisition. Management
@@ -65,7 +66,7 @@ import java.util.concurrent.TimeUnit;
  * filename UTC/identity, AGC gain semantics and playback.
  *
  */
-public final class Fmcomms2SampleSource implements ManagedSampleSource, RuntimeConfigurableSampleSource {
+public final class Fmcomms2SampleSource implements ManagedSampleSource, RuntimeConfigurableSampleSource, LeasedSampleSource {
     static final SourceDescriptor DESCRIPTOR = new SourceDescriptor("fmcomms2", "FMComms2 / PlutoPlus IIOD network", "1",
             "Pure Java TCP IIOD AD9361 complex IQ source");
     private final Object lifecycle = new Object();
@@ -84,6 +85,9 @@ public final class Fmcomms2SampleSource implements ManagedSampleSource, RuntimeC
     private volatile String device = "";
     private volatile Thread worker;
     private SampleSink sink;
+    private LeasedSampleSink leasedSink;
+    private volatile IqBufferPool iqPool;
+    private volatile long leasedBlocks;
     private final Clock recordingClock;
     private final Cf32Recorder.FileFactory recordingFiles;
     private final ReadDiagnostics readDiagnostics;
@@ -154,14 +158,30 @@ public final class Fmcomms2SampleSource implements ManagedSampleSource, RuntimeC
         synchronized (lifecycle) {
             if (state != ComponentState.CONFIGURED) throw new LifecycleException("Sink wiring requires CONFIGURED");
             this.sink = Objects.requireNonNull(sink);
+            this.leasedSink = null;
         }
+    }
+
+    @Override
+    public void setLeasedSampleSink(LeasedSampleSink sink) {
+        synchronized (lifecycle) {
+            if (state != ComponentState.CONFIGURED) throw new LifecycleException("Sink wiring requires CONFIGURED");
+            this.leasedSink = Objects.requireNonNull(sink);
+            this.sink = null;
+        }
+    }
+
+    @Override
+    public Optional<LeasedSampleSource.Statistics> leasedStatistics() {
+        IqBufferPool pool = iqPool;
+        return pool == null ? Optional.empty() : Optional.of(new LeasedSampleSource.Statistics(leasedBlocks, pool.statistics()));
     }
 
     @Override
     public void start() {
         IiodClient owned;
         synchronized (lifecycle) {
-            if (state != ComponentState.CONFIGURED || sink == null)
+            if (state != ComponentState.CONFIGURED || sink == null && leasedSink == null)
                 throw new LifecycleException("Start requires CONFIGURED with sample sink");
             // A test may be cancelled after publishing its source but before
             // management reaches start. Do not configure hardware in that case.
@@ -375,7 +395,16 @@ public final class Fmcomms2SampleSource implements ManagedSampleSource, RuntimeC
         ReadDiagnostics diagnostics = readDiagnostics;
         try {
             byte[] raw = new byte[Math.multiplyExact(settings.bufferSize(), 4)];
-            float[] iq = diagnostics == null ? new float[Math.multiplyExact(settings.blockSamples(), 2)] : null;
+            boolean pooled = diagnostics == null && (leasedSink != null || recording != null);
+            float[] iq = diagnostics == null && !pooled ? new float[Math.multiplyExact(settings.blockSamples(), 2)] : null;
+            if (pooled) {
+                long capacity = (long) Integer.highestOneBit(settings.blockSamples() - 1) * 2;
+                if (capacity == 0) capacity = 1;
+                // Account for size-class rounding in both independent recorder
+                // queues, plus acquisition and the two writers' in-flight blocks.
+                iqPool = new IqBufferPool(2 * (recording == null ? 0 : settings.recording().queueBytes())
+                        + 128L * 1024 * 1024 + 4 * capacity * 8);
+            }
             long anchor = 0, firstCompletionNanos = 0;
             boolean first = true;
             while (!stopRequested) {
@@ -396,11 +425,26 @@ public final class Fmcomms2SampleSource implements ManagedSampleSource, RuntimeC
                 }
                 for (int offset = 0; offset < bytes && !stopRequested; ) {
                     int count = Math.min(settings.blockSamples(), (bytes - offset) / 4);
-                    layout.convert(raw, offset, count, iq);
                     long timestamp = Math.addExact(anchor, (long) (samples / (double) rate * 1e9));
-                    ComplexSampleBlock block = new ComplexSampleBlock(iq, count, samples, timestamp, rate);
-                    if (recording != null) recording.offer(block);
-                    sink.accept(block);
+                    if (!pooled) {
+                        layout.convert(raw, offset, count, iq);
+                        sink.accept(new ComplexSampleBlock(iq, count, samples, timestamp, rate));
+                    } else {
+                        int rawOffset = offset;
+                        try (IqBufferLease lease = iqPool.tryAcquire(count).orElseThrow(
+                                () -> new SourceException("IQ buffer pool exhausted"))) {
+                            lease.withWriteAccess(access -> layout.convert(raw, rawOffset, count, access));
+                            lease.publish(0, count);
+                            try (LeasedSampleBlock block = LeasedSampleBlock.from(lease, samples, timestamp, rate)) {
+                                if (recording != null) recording.offer(block);
+                                if (leasedSink != null) {
+                                    leasedSink.accept(block);
+                                    leasedBlocks++;
+                                }
+                                else sink.accept(block.toComplexSampleBlock());
+                            }
+                        }
+                    }
                     samples = Math.addExact(samples, count);
                     blocks = Math.incrementExact(blocks);
                     lastTimestamp = timestamp;
@@ -413,6 +457,7 @@ public final class Fmcomms2SampleSource implements ManagedSampleSource, RuntimeC
                 if (e instanceof IiodClient.RemoteException remote && remote.errno == 75) overruns++;
             }
         } finally {
+            if (iqPool != null) iqPool.close();
             connection.close();
             connected = false;
             finishAcquisition();

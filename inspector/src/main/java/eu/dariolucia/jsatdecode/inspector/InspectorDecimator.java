@@ -1,6 +1,11 @@
 package eu.dariolucia.jsatdecode.inspector;
 
 import eu.dariolucia.jsatdecode.api.source.ComplexSampleBlock;
+import eu.dariolucia.jsatdecode.api.source.IqBufferLease;
+import eu.dariolucia.jsatdecode.api.source.IqBufferPool;
+import eu.dariolucia.jsatdecode.api.source.IqSampleView;
+import eu.dariolucia.jsatdecode.api.source.LeasedSampleBlock;
+import eu.dariolucia.jsatdecode.api.source.SourceException;
 
 /* Stateful anti-aliasing power-of-two decimation, owned only by the acquisition
    worker. Cascaded 63-tap Blackman half-band filters retain delay and sample
@@ -13,6 +18,7 @@ final class InspectorDecimator {
     private long anchor;
     private boolean anchored;
     private float[] first = new float[0], second = new float[0];
+    private final IqBufferPool outputPool = new IqBufferPool(152L * 1024 * 1024);
 
     InspectorDecimator(int factor) {
         if (factor < 1 || factor > 64 || Integer.bitCount(factor) != 1)
@@ -24,6 +30,28 @@ final class InspectorDecimator {
 
     ComplexSampleBlock process(ComplexSampleBlock input) {
         if (factor == 1) return input;
+        Result result = transform(input);
+        return new ComplexSampleBlock(result.samples, result.count, result.index, result.timestamp, result.rate);
+    }
+
+    boolean bypassed() { return factor == 1; }
+
+    LeasedSampleBlock processLeased(IqSampleView input) {
+        if (factor == 1) throw new IllegalStateException("Bypassed decimation has no output buffer");
+        Result result = transform(input);
+        try (IqBufferLease lease = outputPool.tryAcquire(result.count).orElseThrow(
+                () -> new SourceException("Inspector IQ buffer pool exhausted"))) {
+            lease.putInterleaved(result.samples, 0, 0, result.count);
+            lease.publish(0, result.count);
+            return LeasedSampleBlock.from(lease, result.index, result.timestamp, result.rate);
+        }
+    }
+
+    void close() { outputPool.close(); }
+
+    IqBufferPool.Statistics poolStatistics() { return outputPool.statistics(); }
+
+    private Result transform(IqSampleView input) {
         if (!anchored) {
             anchor = input.timestampNanos();
             anchored = true;
@@ -46,10 +74,12 @@ final class InspectorDecimator {
         }
         double rate = input.sampleRate() / factor;
         long timestamp = Math.addExact(anchor, (long) (outputSamples / rate * 1e9));
-        ComplexSampleBlock output = new ComplexSampleBlock(source, count, outputSamples, timestamp, rate);
+        Result output = new Result(source, count, outputSamples, timestamp, rate);
         outputSamples += count;
         return output;
     }
+
+    private record Result(float[] samples, int count, long index, long timestamp, double rate) { }
 
     private static final class Stage {
         private static final int LENGTH = 63, MIDDLE = LENGTH / 2;

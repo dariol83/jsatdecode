@@ -81,6 +81,12 @@ final class IioContext {
                 iq[n * 2 + 1] = qFormat.value(bytes, offset + qOffset);
             }
         }
+
+        void convert(byte[] bytes, int offset, int samples, eu.dariolucia.jsatdecode.api.source.IqWriteAccess iq) {
+            for (int n = 0; n < samples; n++, offset += 4) {
+                iq.put(n, iFormat.value(bytes, offset + iOffset), qFormat.value(bytes, offset + qOffset));
+            }
+        }
     }
 
     record Format(boolean bigEndian, boolean fullyDefined, int bits, int shift, float divisor) {
