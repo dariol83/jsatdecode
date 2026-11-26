@@ -63,6 +63,13 @@
                             <classpathScope>test</classpathScope><skip>${skipTests}</skip>
                         </configuration>
                     </execution>
+                    <execution>
+                        <id>iq-buffer-pool-tests</id><phase>test</phase><goals><goal>java</goal></goals>
+                        <configuration>
+                            <mainClass>eu.dariolucia.jsatdecode.IqBufferPoolTest</mainClass>
+                            <classpathScope>test</classpathScope><skip>${skipTests}</skip>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>

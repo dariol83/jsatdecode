@@ -17,6 +17,44 @@ failure reporting. A factory may also implement `DiagnosticSampleSourceFactory`
 for a bounded, count-only read diagnostic. These capabilities let Inspector use
 source providers through the source service while retaining diagnostic behavior.
 
+### Opt-in IQ buffer ownership
+
+`IqBufferPool` and `IqBufferLease` provide an experimental, explicitly leased
+alternative for new code; the existing source, decoder, Inspector and recorder
+paths still use `ComplexSampleBlock` and its unchanged defensive copies. The pool
+budget covers the float payload of both checked-out and retained idle arrays.
+Power-of-two capacity classes are charged in full; idle classes may be evicted
+to make room. `tryAcquire` returns empty rather than waiting for capacity, and
+allocation errors propagate. Array/object overhead and evicted arrays awaiting
+garbage collection are outside the payload budget.
+
+An acquired lease is exclusively writable until `publish(offset, count)`
+changes that same lease to read-only. Both values are in complex samples;
+indexed reads start at the valid window, and only initialized samples may be
+published. Reused storage has unspecified contents. A synchronous consumer may
+borrow a published lease during a call. Any asynchronous consumer must retain a
+separate lease **before** enqueueing it and close that lease on completion,
+rejection, cancellation, or failure. Every lease must be closed exactly once;
+duplicate closes fail and increment `invalidReleases`. Closing a pool prevents
+new acquisitions and discards idle arrays, while outstanding leases stay valid
+until their own last close.
+
+```java
+try (IqBufferPool pool = new IqBufferPool(32_768);
+     IqBufferLease lease = pool.tryAcquire(4096).orElseThrow()) {
+    // Fill all samples that will be published.
+    for (int n = 0; n < 4096; n++) lease.put(n, 0.0f, 0.0f);
+    lease.publish(0, 4096);
+    // Only when calling a legacy sink, make an independent legacy block.
+    ComplexSampleBlock legacy = lease.toComplexSampleBlock(0, timestampNanos, sampleRate);
+}
+```
+
+Pool statistics distinguish outstanding leases, distinct active array bytes,
+idle retained bytes, peak values, allocations, reuse, exhaustion and invalid
+releases. The current implementation synchronizes indexed access with closure and
+recycling; its performance must be qualified before use in a production DSP path.
+
 `SampleSourceFactory.configurationProperties()` optionally returns ordered
 `SourcePropertyDescriptor` values: the existing unprefixed key, label, type, unit,
 default, required flag, inclusive bounds, choices and runtime-update capability.
