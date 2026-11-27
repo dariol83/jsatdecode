@@ -59,6 +59,7 @@ final class InspectorWindow extends JFrame {
     private final JButton browse = new JButton("Browse…");
     private final JToggleButton connection = new JToggleButton("Connect");
     private final JButton testMode = new JButton("Test mode");
+    private final JButton advanced = new JButton("Advanced...");
     private final JToggleButton recording = new JToggleButton("Start storage");
     private final JToggleButton sidebarToggle = new JToggleButton("Hide settings");
     private final JLabel effectiveRate = new JLabel();
@@ -190,6 +191,7 @@ final class InspectorWindow extends JFrame {
         connection.addActionListener(event -> connectionRequested());
         testMode.setToolTipText("Run PlutoPlus sample-drop tests using this IP address while disconnected.");
         testMode.addActionListener(event -> testRequested());
+        advanced.addActionListener(event -> editAdvanced());
         recording.addActionListener(event -> recordingRequested());
         browse.addActionListener(event -> chooseFolder());
         sourceSelector.addActionListener(event -> sourceChanged());
@@ -298,7 +300,8 @@ final class InspectorWindow extends JFrame {
         fullRow(panel, 1, connection);
         fullRow(panel, 2, applySource);
         fullRow(panel, 3, testMode);
-        fullRow(panel, 4, sourcePropertiesContainer);
+        fullRow(panel, 4, advanced);
+        fullRow(panel, 5, sourcePropertiesContainer);
         return panel;
     }
 
@@ -336,7 +339,8 @@ final class InspectorWindow extends JFrame {
     private void showSource(String id, InspectorSourceSettings selection) {
         selectedSourceId = id;
         SampleSourceFactory factory = sourceFactories.get(id);
-        sourceProperties = new SourceConfigurationPanel(factory.configurationProperties(), selection.properties());
+        sourceProperties = new SourceConfigurationPanel(factory.configurationProperties().stream()
+                .filter(property -> !property.advanced()).toList(), selection.properties());
         sourceProperties.onChange(this::updateEffectiveRate);
         sourcePropertiesContainer.removeAll();
         sourcePropertiesContainer.add(sourceProperties, BorderLayout.CENTER);
@@ -344,6 +348,25 @@ final class InspectorWindow extends JFrame {
         testMode.setVisible(id.equals("fmcomms2") && factory instanceof DiagnosticSampleSourceFactory);
         sourcePropertiesContainer.revalidate();
         sourcePropertiesContainer.repaint();
+    }
+
+    private void editAdvanced() {
+        List<SourcePropertyDescriptor> properties = sourceFactories.get(selectedSourceId).configurationProperties().stream()
+                .filter(SourcePropertyDescriptor::advanced).toList();
+        SourceConfigurationPanel editor = new SourceConfigurationPanel(properties, sourceProperties.values());
+        JScrollPane scroll = new JScrollPane(editor);
+        scroll.setPreferredSize(new Dimension(500, 450));
+        while (JOptionPane.showConfirmDialog(this, scroll, "Advanced source settings",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) == JOptionPane.OK_OPTION) {
+            try {
+                editor.validateValues();
+                showSource(selectedSourceId, new InspectorSourceSettings(selectedSourceId, editor.values(), selected(decimation)));
+                updateEffectiveRate();
+                return;
+            } catch (IllegalArgumentException e) {
+                JOptionPane.showMessageDialog(this, e.getMessage(), "Invalid source setting", JOptionPane.ERROR_MESSAGE);
+            }
+        }
     }
 
     private JPanel fftGroup() {
@@ -481,6 +504,8 @@ final class InspectorWindow extends JFrame {
         for (JComponent component : fftControls) component.setEnabled(!closing && !testing);
         connection.setEnabled(selectedSourceId != null && !connectionBusy && !closing && !testing);
         testMode.setEnabled(testMode.isVisible() && hardwareEnabled && !recordingBusy && !storing);
+        advanced.setEnabled(hardwareEnabled && !sourceUpdating && selectedSourceId != null
+                && sourceFactories.get(selectedSourceId).configurationProperties().stream().anyMatch(SourcePropertyDescriptor::advanced));
         boolean live = selectedSourceId != null && sourceFactories.get(selectedSourceId).configurationProperties().stream()
                 .anyMatch(SourcePropertyDescriptor::runtimeUpdatable);
         applySource.setEnabled(live && connected && !connectionBusy && !sourceUpdating && !closing && !testing);

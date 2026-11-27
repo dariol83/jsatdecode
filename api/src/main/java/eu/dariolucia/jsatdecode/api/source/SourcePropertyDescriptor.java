@@ -26,10 +26,11 @@ import java.util.Objects;
  * @param runtimeUpdatable whether the running source accepts this key through
  *                         {@link RuntimeConfigurableSampleSource}
  * @param description help text, including conditional requirements
+ * @param advanced whether the setting belongs in an advanced editor
  */
 public record SourcePropertyDescriptor(String name, String label, Type type, String unit, String defaultValue,
                                        boolean required, Double minimum, Double maximum,
-                                       List<String> allowedValues, boolean runtimeUpdatable, String description) {
+                                       List<String> allowedValues, boolean runtimeUpdatable, String description, boolean advanced) {
     /** Types understood by generic editors; paths remain strings in Configuration. */
     public enum Type {
         /** Text value. */ STRING,
@@ -38,6 +39,13 @@ public record SourcePropertyDescriptor(String name, String label, Type type, Str
         /** Exact signed 32-bit integer. */ INTEGER,
         /** Exact signed 64-bit integer. */ LONG,
         /** Finite floating-point number. */ DOUBLE
+    }
+
+    /** Creates a non-advanced descriptor. */
+    public SourcePropertyDescriptor(String name, String label, Type type, String unit, String defaultValue,
+                                    boolean required, Double minimum, Double maximum, List<String> allowedValues,
+                                    boolean runtimeUpdatable, String description) {
+        this(name, label, type, unit, defaultValue, required, minimum, maximum, allowedValues, runtimeUpdatable, description, false);
     }
 
     /** Validates metadata and snapshots allowed values. */

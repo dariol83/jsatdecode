@@ -60,6 +60,7 @@ final class Fmcomms2Properties {
             case "recording.queue_mib", "recording.write_buffer_mib" -> "MiB";
             default -> "";
         };
-        return new SourcePropertyDescriptor(key, label, type, unit, fallback, false, min, max, List.of(choices), live, help);
+        return new SourcePropertyDescriptor(key, label, type, unit, fallback, false, min, max, List.of(choices), live, help,
+                !Set.of("uri", "frequency", "sample_rate", "bandwidth", "fpga_decimation", "buffer_size", "gain1", "manual_gain1").contains(key));
     }
 }

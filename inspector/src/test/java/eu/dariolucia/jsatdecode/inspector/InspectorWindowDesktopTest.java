@@ -60,6 +60,7 @@ public final class InspectorWindowDesktopTest {
                 check(factor.getSelectedItem().equals(2) && window.settings().effectiveSampleRate() == 24000.25,
                         "Software decimation was not retained and applied to the file source");
                 check(!button(window, "Test mode").isVisible(), "Radio diagnostics visible for a file source");
+                check(!button(window, "Advanced...").isEnabled(), "Advanced enabled for a source without advanced settings");
                 window.validate();
                 JTextField fileField = labeled(window, "Recording file *", JTextField.class);
                 check(fileField.getHeight() > 0 && SwingUtilities.convertPoint(fileField, 0, 0, window).y < 400,
@@ -78,6 +79,8 @@ public final class InspectorWindowDesktopTest {
                 JTextField rxBuffer = labeled(window, "RX buffer (samples)", JTextField.class);
                 check(rxBuffer.getText().equals("16384"), "RX buffer sample default failed");
                 AbstractButton testMode = button(window, "Test mode");
+                check(button(window, "Advanced...").isEnabled() && button(window, "Advanced...").getY() > testMode.getY(),
+                        "Advanced settings are not available below Test mode");
                 check(testMode.isEnabled() && testMode.getY() > button(window, "Connect").getY(),
                         "Test mode is not available below Connect while disconnected");
                 testMode.doClick();
@@ -115,6 +118,7 @@ public final class InspectorWindowDesktopTest {
                 check(actions.connectedSettings.source().configuration().getInt("buffer_size") == 4097, "RX buffer sample count changed before connection");
                 check(!labeled(window, "Device URI", JTextField.class).isEnabled(), "Hardware edits enabled during connection");
                 window.setConnection(true, false);
+                check(!button(window, "Advanced...").isEnabled(), "Advanced enabled while connected");
                 check(!testMode.isEnabled(), "Test mode enabled during normal radio reception");
                 check(labeled(window, "Tuning frequency (Hz)", JTextField.class).isEnabled(), "Runtime tuning edits disabled while connected");
                 check(labeled(window, "RX1 manual gain (dB)", JTextField.class).isEnabled(), "Runtime gain edits disabled while connected");

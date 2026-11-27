@@ -53,6 +53,10 @@ class SourceConfigurationTest {
         assertEquals("samples", property("cf32", "block_samples").unit());
         assertEquals("slow_attack", property("fmcomms2", "gain1").defaultValue());
         assertTrue(property("fmcomms2", "frequency").runtimeUpdatable());
+        var basic = java.util.Set.of("uri", "frequency", "sample_rate", "bandwidth", "fpga_decimation", "buffer_size", "gain1", "manual_gain1");
+        for (var descriptor : factories.get("fmcomms2").configurationProperties())
+            assertEquals(!basic.contains(descriptor.name()), descriptor.advanced(), descriptor.name());
+        assertFalse(property("cf32", "file").advanced());
         assertFalse(property("fmcomms2", "sample_rate").runtimeUpdatable());
         assertThrows(ConfigurationException.class, () -> property("fmcomms2", "frequency").parse("69999999"));
         assertThrows(ConfigurationException.class, () -> property("fmcomms2", "frequency").parse("137100000.5"));
