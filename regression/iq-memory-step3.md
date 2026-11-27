@@ -6,10 +6,11 @@ The commit containing this report is the Step 3 candidate. Windows 11 Pro
 library hashes, commands and raw output are retained in the ignored local
 `regression/iq-memory-step3-evidence/` bundle. Preserve it before cleaning.
 
-The Step 2 software and desktop checks pass, but its physical Pluto/PlutoPlus
-test has not run. **G2 and G3 remain RELEASE GATES OPEN.** This work was
-implemented at the user's request with that prerequisite still open; it is not
-a production release certification.
+At the time this Step 3 report was written, the Step 2 physical Pluto/PlutoPlus
+test had not run. The subsequent live checks passed for the tested settings;
+the [final report](iq-memory-final.md#plutoplus-release-gate-checks) records
+their limits and the user's acceptance of the measured throughput tradeoff.
+**G2 and G3 are CLOSED — PASS WITH AN APPROVED PERFORMANCE EXCEPTION.**
 
 ## Measured change
 
@@ -55,8 +56,9 @@ Both runs reused one 32,768-byte buffer and ended with zero outstanding leases.
   decoder instances also processed the same generated signal concurrently and
   each produced the same frame count as the isolated decoder.
 - API Javadoc: **PASS** with `-Xdoclint:all -Werror`.
-- Physical Pluto/PlutoPlus acquisition, recording and stop/restart: **NOT RUN**.
-  Simulator tests do not establish physical hardware behavior.
+- Physical Pluto/PlutoPlus acquisition, recording and stop/restart: **NOT RUN
+  during the original Step 3 verification**. Simulator tests do not establish
+  physical hardware behavior; the later live results are linked above.
 
 The private inputs were fingerprinted before replay. The detailed audit hashes
 every IQ pair, ordered block metadata, frame bytes and normalized frame
@@ -183,4 +185,4 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File regression/CompareIqStep
 If the candidate fails a required gate, retain the evidence, revert the Step 3
 commit independently, and rerun the last passing full suite. Do not change the
 reference inputs, copy/immutability contracts or acceptance thresholds to make
-a failing result pass. The physical-source release check remains required.
+a failing result pass. See the final report for the later physical-source check.

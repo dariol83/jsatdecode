@@ -30,16 +30,19 @@ runtime translation. Legacy sources, decoders and sinks keep their independent
   source/decoder monitoring values match the Step 1 baseline exactly. Both
   runtime replays finish with zero outstanding pool leases.
 - Physical Pluto/PlutoPlus live acquisition, recording and stop/restart:
-  **NOT RUN — RELEASE GATE OPEN**. No compatible hardware was available in
-  this session. On the later Step 2 resumption, the committed Step 2 baseline
+  **NOT RUN in the initial Step 2 session** because no compatible hardware was
+  available. The later live check is reported below. On the later Step 2
+  resumption, the committed Step 2 baseline
   was rebuilt in isolation and all three Inspector desktop smoke tests passed,
   including the rendered spectrum/waterfall, source switching, settings,
   recording controls, cancellation, application startup and shutdown. The
   screenshot and logs are retained in the Step 3 local evidence bundle.
 
-**G2: RELEASE GATE OPEN.** The software checks below passed. The production
-release gate remains open until the physical-radio smoke test required by the
-plan is completed; this report does not certify physical hardware.
+**G2: CLOSED — PASS WITH AN APPROVED PERFORMANCE EXCEPTION.** The software
+checks below passed, and the subsequent physical-radio smoke test passed for the
+tested PlutoPlus settings. The user accepted the observed real-recording
+throughput tradeoff; the exception, measurements and limits are documented in
+the [final report](iq-memory-final.md#plutoplus-release-gate-checks).
 
 The new tests compare CF32, WAV, RF64 and CS16 IQ bits, partial blocks, empty
 ranges, repeat and normalized timestamps against the legacy path. Rotator tests

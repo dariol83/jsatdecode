@@ -6,7 +6,11 @@ peaks and GC counts fell substantially. Strictly unchanged performance cannot
 be claimed: the full Hinode recording was consistently slower, including
 without profiling, where median throughput fell by 2.20%. Elektro-L also had
 a small increase in median source elapsed time, with greater run variation.
-The required physical-radio release check remains open.
+The physical-radio acquisition, recording and stop/restart check subsequently
+passed, including sustained runs on both mission configurations. The user has
+accepted the observed real-recording throughput tradeoff in exchange for the
+memory reduction. **G2 and G3 are closed with an approved performance
+exception**; see the live qualification and gate assessment below.
 
 Test date: 2026-11-27. The unmodified pre-optimisation baseline was commit
 `f7a75d8303ded19ce09ee831059b20c2d9606373`; the final candidate was commit
@@ -197,6 +201,146 @@ decoding; they are not decoder-only CPU measurements. The predeclared 5%
 criterion applies to the synthetic workload, so it does not certify strict
 equivalence for these full recordings.
 
+## PlutoPlus release-gate checks
+
+On 2026-11-27, a PlutoPlus was reachable at `ip:192.168.3.1` on IIOD port
+30431. The live acquisition, source-owned CF32 recording, intentional stop and
+fresh-source restart checks **passed** for both the Step 2 build and the final
+build. The Step 2 packaged libraries identify commit
+`fb98b1698881f0bc2ae24d15c10f37457fd03d70`; the final libraries identify
+`6db5d3a5dd32714d00eab8a7b556144944941ac3`. The current commit at the time of
+the checks, `65fd503ada39db934272a36fecb2c97b8cd4b4e0`, differs from that final
+build only by the addition of this report. These checks used OpenJDK 25.0.2
+with `-Xms256m -Xmx512m` on the same Windows host documented above. All 19
+packaged-library hashes for each tested build match their retained manifests.
+
+The source was wired through `JSatDecodeRuntime` to the actual mission decoder.
+The test observes the leased source stream before runtime translation and
+compares its independently computed little-endian CF32 SHA-256 with the source
+recording. Every block's rate, sample index and sample-clock timestamp are
+checked, as are source, decoder, recording and pool accounting. Hinode uses
+zero translation; Elektro-L uses a +250 kHz runtime rotation at 1 MS/s. Each
+translated sample is compared numerically against the expected quarter-turn
+sequence; signed zero is treated as equal. The existing software rotator tests
+provide the separate bit-exact baseline comparison. A new source/runtime is
+created for the second acquisition because these components are one-shot.
+
+| Build and mission | Runs | Samples / blocks per run | Delivery rate during final sustained runs | CF32 bytes per run |
+| --- | ---: | ---: | ---: | ---: |
+| Step 2 Hinode | 2 x 4 s | 2,002,944 / 489 | — | 16,023,552 |
+| Step 2 Elektro-L | 2 x 4 s | 4,001,792 / 977 | — | 32,014,336 |
+| Final Hinode | 2 x 30 s | 15,003,648 / 3,663 | 501,511 and 501,394 samples/s | 120,029,184 |
+| Final Elektro-L | 2 x 30 s | 30,003,200 / 7,325 | 1,000,195 and 1,000,467 samples/s | 240,025,600 |
+
+Delivery rates above are calculated from the first to last observed delivery
+block, excluding the first block's samples. They include the test observer and
+decoder work, and are not estimates of device-clock accuracy. Each recording
+contained exactly the samples accepted by the source recorder and delivered to
+the observer. The four final recording hashes, also checked by an independent
+file hash, are:
+
+| Final recording | SHA-256 |
+| --- | --- |
+| Hinode run 1 | `17339a8ef54b8a6aa8bd0d1a08914fbca99954b0c1a72bdee617ef9b9830fbf8` |
+| Hinode run 2 | `f7d1de521a09b59680caf66441972c2a87e7121e978206a0b6ccb770146f4df6` |
+| Elektro-L run 1 | `1a0622e48fe291899ee3d38bc4e671a66e62e4c5f8dca0bf3c5bd5819354c03b` |
+| Elektro-L run 2 | `68046df753985bfba4aa9a6a1cd21b6b9273e2ab845061654ebeb3b9e8cedb13` |
+
+Across these runs, source errors, reported overruns, recorder errors, pool
+exhaustions, invalid releases and outstanding leases were zero. After final
+drain, the source and rotator pools had no active leases; the rotator pool was
+closed with no retained bytes. The final source pool peaked at 294,912 bytes
+against a 268,566,528-byte cap; the translated path's separate rotator pool
+peaked at 32,768 bytes against a 268,435,456-byte cap. The largest observed
+recorder queue high-water mark was 294,912 bytes against a 67,108,864-byte
+queue budget.
+
+Hinode used LO 2,256,220,000 Hz, 4 MS/s PHY, FPGA decimation 8, 500 kS/s
+output, 4 MHz bandwidth and manual gain 32 dB. Elektro-L used LO 1,693,250,000
+Hz, 8 MS/s PHY, FPGA decimation 8, 1 MS/s output, 1.5 MHz bandwidth, manual
+gain 40 dB and the +250 kHz runtime translation. RX1 was selected. The
+repository's Elektro-L example requests 4 MS/s PHY with decimation 4; this
+particular firmware advertised only 4 MS/s and 500 kS/s ADC rates at that PHY
+rate, so startup correctly rejected the requested 1 MS/s ADC rate. The failed
+attempt is retained in `step2-elektro.log`. The 8 MS/s / 8 setting delivered
+the same decoder input rate and passed; support for other decimation settings
+is device/firmware dependent. The original pre-optimisation build was also
+tested on this device with the example's 4 MS/s / 4 settings and rejected them
+with the same advertised-rate error; see `original-example-rate-probe.log` and
+`PlutoExampleRateProbe.java` in the evidence directory. Thus this configuration
+failure was observed before and after the memory changes. The device was then
+reconfigured and successfully restarted using 8 MS/s / 8; that follow-up is in
+`final-elektro-post-probe.log`.
+
+No valid satellite frames or signal lock were observed during these live runs.
+Therefore they qualify the bounded acquisition/recording/restart path, not
+on-air reception or live frame correctness. Frame equivalence is established by
+the reference-recording comparisons above. `source.reported_overruns=0` means
+no IIOD overrun was reported; the source does not measure silent FPGA or
+kernel FIFO loss. A known input signal or device-specific loss instrumentation
+would be needed to validate that separately.
+
+**Gate assessment: G2 and G3 CLOSED — PASS WITH AN APPROVED PERFORMANCE
+EXCEPTION.** On 2026-11-27 the user explicitly instructed us to close the
+release performance gate and accepted the measured throughput in exchange for
+contained memory use. This decision applies to the tested candidate and
+workloads; it does not establish an acceptance threshold for future changes.
+
+The physical smoke-test criterion of G2 and the physical source-path smoke test
+in G3 pass for the settings and device tested. The predeclared synthetic
+performance criterion also passes, and the reference frame bytes and accounting
+remain identical. Step 2's earlier profiled Hinode wall-time increase was
+2.05%, within the 2.17% baseline range observed in an earlier run. The later
+final-build unprofiled Hinode replay showed a 2.20% throughput decrease in
+every pair, with 0.66% baseline spread in that set. Its cause remains unknown.
+The final build processed the 500 kS/s reference at approximately 1.66 MS/s,
+or 3.31 times real time, on the tested host.
+
+The original plan requires no G2 throughput regression beyond documented noise
+and no material G3 worsening. The user accepts this measured tradeoff as an
+explicit exception to the G2 performance requirement and as acceptable for G3.
+The original 5% threshold remains unchanged and applies only to the synthetic
+workload; no real-recording threshold is invented after the fact. The measured
+slowdown is not a changed frame output or a proven decoder-only CPU regression.
+
+| Gate evidence | Result |
+| --- | --- |
+| G2 build, formats, rotator, Inspector recording, simulated IIOD recovery, replay and lifecycle checks | PASS in the earlier software qualification |
+| G2 PlutoPlus acquisition, recording and stop/restart | PASS for the tested configurations |
+| G2 real-recording throughput versus documented noise | WAIVED by explicit user acceptance of the observed tradeoff; cause remains unknown |
+| G3 clean builds, deterministic mission replay, desktop checks, stress, docs and allocation reduction | PASS in the earlier software qualification |
+| G3 physical source-path smoke test | PASS for the tested configurations; on-air frame reception and silent hardware loss remain unverified |
+| G3 real-recording materiality | PASS with user acceptance of the observed tradeoff; no new threshold is set |
+
+The earlier software evidence remains applicable because the production code in
+the tested final libraries is unchanged at the current commit. No full Maven
+reactor rebuild was repeated during the live-radio follow-up.
+
+The reproducible opt-in helper is
+[`PlutoLiveGateEvidence.java`](PlutoLiveGateEvidence.java), SHA-256
+`381bdb2389941b206e12453235cdad6962342b69538219fa99006f679040367c`.
+It uses a test-only source observer and reflectively invokes the runtime
+constructor used for frequency translation; it does not change the production
+runtime. With fresh output directories, the commands are:
+
+```powershell
+$bundle = 'target/iq-memory-pluto-20261127'
+$java = 'C:/Users/dario/.jdks/openjdk-25.0.2/bin'
+$step2 = 'regression/iq-memory-step2-evidence/final-benchmark-lib/*'
+$final = 'target/iq-memory-final-20261127/evidence/candidate-lib/*'
+New-Item -ItemType Directory "$bundle/classes"
+& "$java/javac.exe" -cp $step2 -d "$bundle/classes" regression/PlutoLiveGateEvidence.java
+& "$java/java.exe" -Xms256m -Xmx512m -cp "$bundle/classes;$step2" PlutoLiveGateEvidence ip:192.168.3.1 hinode "$bundle/step2-hinode-checked" 4
+& "$java/java.exe" -Xms256m -Xmx512m -cp "$bundle/classes;$step2" PlutoLiveGateEvidence ip:192.168.3.1 elektro "$bundle/step2-elektro-checked" 4
+& "$java/java.exe" -Xms256m -Xmx512m -cp "$bundle/classes;$final" PlutoLiveGateEvidence ip:192.168.3.1 hinode "$bundle/final-hinode-sustained" 30
+& "$java/java.exe" -Xms256m -Xmx512m -cp "$bundle/classes;$final" PlutoLiveGateEvidence ip:192.168.3.1 elektro "$bundle/final-elektro-sustained" 30
+```
+
+Use a new bundle path on rerun: the helper refuses to reuse its output
+directory. The local ignored `target/iq-memory-pluto-20261127/` directory holds
+the exact logs, failed-startup evidence and CF32 files; preserve it before
+cleaning `target`.
+
 ## Commands and artifacts
 
 The baseline and candidate were each built in their own archived directory:
@@ -266,9 +410,8 @@ directory before cleaning `target`.
 
 ## Limitations
 
-Physical Pluto/PlutoPlus acquisition, recording and stop/restart were not
-tested in this run. The Plug and Play check found no matching device, the
-example address `192.168.3.1` was unreachable, and no verified IIOD URI was
-available. The simulated IIOD and desktop tests do not validate physical radio
-behavior. The plan's G2 and G3 production release gates remain open pending the
-required live-hardware check.
+The original full software audit ran before the radio was connected; the later
+physical-radio results and their limits are recorded above. The live runs did
+not receive a known satellite signal, and the IIOD source does not expose a
+complete hardware FIFO-loss counter. The real-recording throughput difference
+remains unexplained and is accepted by the user as documented above.
