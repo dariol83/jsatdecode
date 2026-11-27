@@ -107,9 +107,10 @@ final class InspectorWindow extends JFrame {
                 : sourceFactories.containsKey("fmcomms2") ? "fmcomms2" : sourceFactories.keySet().stream().findFirst().orElse(null);
         if (initialId != null) {
             sourceSelector.setSelectedItem(sourceFactories.get(initialId).descriptor());
-            showSource(initialId, initialId.equals(selection.id()) ? selection : new InspectorSourceSettings(initialId, Map.of(), 1));
+            showSource(initialId, initialId.equals(selection.id()) ? selection :
+                    new InspectorSourceSettings(initialId, Map.of(), selection.softwareDecimation()));
         }
-        decimation.setToolTipText("Software decimation after acquisition; source hardware decimation is configured separately.");
+        decimation.setToolTipText("Applied after acquisition for every source. Disconnect to change; hardware decimation is configured separately.");
         minimumDb = decimalSpinner(initial.minDb(), -1000, 1000, 5, "0.0");
         maximumDb = decimalSpinner(initial.maxDb(), -1000, 1000, 5, "0.0");
         window = new JComboBox<>(WindowFunction.values());
@@ -142,6 +143,8 @@ final class InspectorWindow extends JFrame {
         JPanel controls = new SettingsPanel();
         controls.setLayout(new BoxLayout(controls, BoxLayout.Y_AXIS));
         controls.setBorder(new EmptyBorder(4, 4, 4, 4));
+        controls.add(decimationGroup());
+        controls.add(Box.createVerticalStrut(5));
         controls.add(sdrGroup());
         controls.add(Box.createVerticalStrut(5));
         controls.add(fftGroup());
@@ -292,13 +295,19 @@ final class InspectorWindow extends JFrame {
         JPanel panel = group("Source settings");
         panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
         row(panel, 0, "Source", sourceSelector);
-        row(panel, 1, "Software decimation", decimation);
+        fullRow(panel, 1, connection);
+        fullRow(panel, 2, applySource);
+        fullRow(panel, 3, testMode);
+        fullRow(panel, 4, sourcePropertiesContainer);
+        return panel;
+    }
+
+    private JPanel decimationGroup() {
+        JPanel panel = group("Software decimation");
+        row(panel, 0, "Factor", decimation);
         effectiveRate.setBorder(new EmptyBorder(3, 0, 3, 0));
-        fullRow(panel, 2, effectiveRate);
-        fullRow(panel, 3, connection);
-        fullRow(panel, 4, applySource);
-        fullRow(panel, 5, testMode);
-        fullRow(panel, 6, sourcePropertiesContainer);
+        fullRow(panel, 1, effectiveRate);
+        fullRow(panel, 2, new JLabel("Disconnect to change the factor"));
         return panel;
     }
 
@@ -317,7 +326,9 @@ final class InspectorWindow extends JFrame {
         if (selectedSourceId != null) sourceDrafts.put(selectedSourceId, sourceSettings());
         SourceDescriptor selected = (SourceDescriptor) sourceSelector.getSelectedItem();
         if (selected == null) return;
-        showSource(selected.id(), sourceDrafts.getOrDefault(selected.id(), new InspectorSourceSettings(selected.id(), Map.of(), 1)));
+        int factor = selected(decimation);
+        InspectorSourceSettings draft = sourceDrafts.getOrDefault(selected.id(), new InspectorSourceSettings(selected.id(), Map.of(), factor));
+        showSource(selected.id(), new InspectorSourceSettings(selected.id(), draft.properties(), factor));
         updateEffectiveRate();
         updateEnabled();
     }

@@ -155,7 +155,8 @@ UTC sample-clock increments, buffer-duration validation and real-time factors
 all use this output rate. No Java filtering, resampling or sample dropping occurs.
 Factors are explicit; the source never silently substitutes another factor.
 
-At a 4 MS/s PHY rate:
+The following table shows the arithmetic for a 4 MS/s PHY rate; a device may
+advertise only a subset of these FPGA factors:
 
 | fpga_decimation | Decoder/network complex samples/s |
 | --- | --- |
@@ -163,6 +164,33 @@ At a 4 MS/s PHY rate:
 | 4 | 1000000 |
 | 8 | 500000 |
 | 16 | 250000 |
+
+#### Delivering 2 MS/s from a PlutoPlus
+
+For firmware that supports the native factor 8, a 2 MS/s IQ stream can be
+delivered without setting the PHY to the unsupported FIR-Off rate of 2 MS/s:
+
+```properties
+source.type=fmcomms2
+source.uri=ip:192.168.3.1
+source.sample_rate=16000000
+source.fpga_decimation=8
+source.filter_source=Off
+```
+
+Keep the remaining source settings, such as frequency, bandwidth and gain,
+appropriate to the desired signal. This configures the PHY at 16 MS/s and the
+hardware output at `16000000 / 8 = 2000000` complex samples/s; it sends 2 MS/s
+over IIOD rather than decimating that stream in Java. The source verifies both
+hardware rates on startup. Some PlutoPlus firmware supports only factors 1 and
+8, so `4000000 / 2` cannot be assumed to work even though the result is also
+2 MS/s. Alternatively, `filter_source=File` can configure a suitable supplied
+FIR for lower PHY rates. The source does not design such a filter automatically.
+
+The selected decoder must also support the delivered sample rate. For example,
+Elektro-L GGAK accepts `decoder.sample_rate_hz=2000000`, while the Hinode
+decoder requires exactly 500000 samples/s and cannot directly accept this
+2 MS/s stream.
 
 For a 2 MHz analog RF bandwidth and 500 kS/s input to Hinode, add these source
 settings to your complete runtime/decoder configuration:

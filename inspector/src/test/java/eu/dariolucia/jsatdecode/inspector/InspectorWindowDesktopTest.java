@@ -44,12 +44,21 @@ public final class InspectorWindowDesktopTest {
                 window.setVisible(true);
                 check(!window.getIconImages().isEmpty(), "Inspector icon did not load from its owning module");
                 check(window.settings().equals(defaults), "Initial settings did not round-trip");
+                JComboBox<?> factor = labeled(window, "Factor", JComboBox.class);
+                JPanel decimationGroup = (JPanel) SwingUtilities.getAncestorOfClass(JPanel.class, factor);
+                var border = (javax.swing.border.CompoundBorder) decimationGroup.getBorder();
+                check(((javax.swing.border.TitledBorder) border.getOutsideBorder()).getTitle().equals("Software decimation"),
+                        "Software decimation is not in its own group");
+                check(factor.isEnabled(), "Software decimation disabled while disconnected");
+                factor.setSelectedItem(2);
                 JComboBox<?> sources = labeled(window, "Source", JComboBox.class);
                 for (int index = 0; index < sources.getItemCount(); index++)
                     if (((SourceDescriptor) sources.getItemAt(index)).id().equals("cf32")) sources.setSelectedIndex(index);
                 labeled(window, "Recording file *", JTextField.class).setText("input.cf32");
                 labeled(window, "Sample rate (Hz) *", JTextField.class).setText("48000.5");
                 check(window.settings().sourceId().equals("cf32"), "Source selection did not reach settings");
+                check(factor.getSelectedItem().equals(2) && window.settings().effectiveSampleRate() == 24000.25,
+                        "Software decimation was not retained and applied to the file source");
                 check(!button(window, "Test mode").isVisible(), "Radio diagnostics visible for a file source");
                 window.validate();
                 JTextField fileField = labeled(window, "Recording file *", JTextField.class);
@@ -57,10 +66,13 @@ public final class InspectorWindowDesktopTest {
                         "Source property layout did not resize when selecting a file source");
                 for (int index = 0; index < sources.getItemCount(); index++)
                     if (((SourceDescriptor) sources.getItemAt(index)).id().equals("fmcomms2")) sources.setSelectedIndex(index);
+                check(factor.getSelectedItem().equals(2), "Software decimation changed when returning to FMComms2");
+                factor.setSelectedItem(1);
                 check(window.settings().equals(defaults), "Returning to FMComms2 lost its configuration");
                 for (int index = 0; index < sources.getItemCount(); index++)
                     if (((SourceDescriptor) sources.getItemAt(index)).id().equals("cf32")) sources.setSelectedIndex(index);
                 check(labeled(window, "Recording file *", JTextField.class).getText().equals("input.cf32"), "Source draft was not retained");
+                check(factor.getSelectedItem().equals(1), "Source draft overwrote the global software decimation");
                 for (int index = 0; index < sources.getItemCount(); index++)
                     if (((SourceDescriptor) sources.getItemAt(index)).id().equals("fmcomms2")) sources.setSelectedIndex(index);
                 JTextField rxBuffer = labeled(window, "RX buffer (samples)", JTextField.class);
@@ -91,7 +103,7 @@ public final class InspectorWindowDesktopTest {
                 labeled(window, "Tuning frequency (Hz)", JTextField.class).setText("137250000");
                 labeled(window, "RF bandwidth (Hz)", JTextField.class).setText("1000000");
                 labeled(window, "PHY sample rate (Hz)", JTextField.class).setText("4000000");
-                labeled(window, "Software decimation", JComboBox.class).setSelectedItem(8);
+                factor.setSelectedItem(8);
                 labeled(window, "RX1 manual gain (dB)", JTextField.class).setText("55");
                 rxBuffer.setText("4097");
                 labeled(window, "Storage folder", JTextField.class).setText(Path.of("target", "inspector-recordings").toAbsolutePath().toString());
@@ -108,6 +120,7 @@ public final class InspectorWindowDesktopTest {
                 check(labeled(window, "RX1 manual gain (dB)", JTextField.class).isEnabled(), "Runtime gain edits disabled while connected");
                 check(!labeled(window, "PHY sample rate (Hz)", JTextField.class).isEnabled(), "Setup edits enabled while connected");
                 check(!labeled(window, "Source", JComboBox.class).isEnabled(), "Source switching enabled while connected");
+                check(!factor.isEnabled(), "Software decimation changed while connected");
                 button(window, "Apply source changes").doClick();
                 check(actions.updates == 1, "Runtime source update action missing");
                 check(labeled(window, "Min dB", JSpinner.class).isEnabled(), "FFT edits disabled while connected");
@@ -146,6 +159,7 @@ public final class InspectorWindowDesktopTest {
                 check(actions.disconnections == 1, "Disconnect action missing");
                 window.setConnection(false, false);
                 check(labeled(window, "Device URI", JTextField.class).isEnabled(), "Hardware edits did not unlock after disconnect");
+                check(labeled(window, "Factor", JComboBox.class).isEnabled(), "Software decimation did not unlock after disconnect");
                 button(window, "Connect").doClick();
                 window.setConnection(true, false);
                 button(window, "Hide settings").doClick();
@@ -173,9 +187,12 @@ public final class InspectorWindowDesktopTest {
                 check(actions.closedSettings.source().configuration().getInt("buffer_size") == 4097, "Close converted or lost the RX sample count");
                 check(actions.closedSettings.waterfallRate() == 15 && actions.closedSettings.storageFormat() == RecordingFormat.CS16,
                         "Close lost waterfall or recording format settings");
-                InspectorWindow unavailable = new InspectorWindow(InspectorSettings.defaults().withSource(new InspectorSourceSettings("unavailable", java.util.Map.of(), 1)),
+                InspectorWindow unavailable = new InspectorWindow(InspectorSettings.defaults().withSource(new InspectorSourceSettings("unavailable", java.util.Map.of(), 4)),
                         new FakeActions(), InspectorSources.available());
-                try { check(unavailable.settings().sourceId().equals("fmcomms2"), "Missing saved provider did not fall back to FMComms2"); }
+                try {
+                    check(unavailable.settings().sourceId().equals("fmcomms2"), "Missing saved provider did not fall back to FMComms2");
+                    check(unavailable.settings().source().softwareDecimation() == 4, "Fallback source lost software decimation");
+                }
                 finally { unavailable.dispose(); }
                 InspectorWindow noProviders = new InspectorWindow(InspectorSettings.defaults(), new FakeActions(), java.util.Map.of());
                 try { check(!button(noProviders, "Connect").isEnabled(), "Connection enabled without providers"); }

@@ -28,7 +28,8 @@ own JAR, using API and shared core UI/registry components. The core launcher's
 `--inspector` selector still works when the Inspector provider is installed.
 Appending `--help` works without a display. No additional native libraries are needed.
 
-The collapsible right sidebar groups source, FFT, waterfall and storage controls.
+The collapsible right sidebar groups software decimation, source, FFT, waterfall
+and storage controls.
 The left side contains a spectrum and a horizontally aligned waterfall,
 separated by a resizable divider. The Waterfall settings group sets its drawing rate.
 Select a source while disconnected. Its advertised configuration properties
@@ -47,6 +48,11 @@ FFT window type, rate, size,
 relative-dB range, averaging and waterfall drawing rate change while receiving.
 Storage can be started/stopped independently of reception. Disconnect and window
 close finish accepted recording data before releasing their workers.
+
+The separate **Software decimation** group applies to every source. Select its
+factor while disconnected; it stays selected when switching between sources.
+Reconnect to apply a changed factor, so spectrum, waterfall and recordings all
+use the same effective sample rate.
 
 ## Radio and sample rates
 
@@ -81,6 +87,14 @@ digital passband. The effective rate appears in the controls and recording name.
 For example, PHY 4 MHz with FPGA factor 1 and software factor 8 yields 500 ksps.
 Explicit FPGA division still requires supporting firmware; software division
 works independently of it.
+
+To receive 2 Msps from a PlutoPlus that supports FPGA factor 8, disconnect and
+set **PHY sample rate** to `16000000`, **FPGA decimation** to `8`, and
+**Software decimation** to `1`. The effective rate should display 2 Msps, and
+the radio sends 2 Msps over the network. A PHY rate of `2000000` with FIR Off
+is below the source's supported FIR-Off minimum. For a software-decimated
+alternative, use a 4 Msps PHY rate, FPGA factor 1 and software factor 2; that
+option transfers 4 Msps from the radio before Inspector reduces it to 2 Msps.
 
 File sources show file path, sample rate, segment limits, repeat, real-time pacing,
 block capacity and center-frequency metadata. CF32/CS16 require a sample rate;
