@@ -31,7 +31,11 @@ runtime translation. Legacy sources, decoders and sinks keep their independent
   runtime replays finish with zero outstanding pool leases.
 - Physical Pluto/PlutoPlus live acquisition, recording and stop/restart:
   **NOT RUN — RELEASE GATE OPEN**. No compatible hardware was available in
-  this session. Desktop visual acceptance was not run.
+  this session. On the later Step 2 resumption, the committed Step 2 baseline
+  was rebuilt in isolation and all three Inspector desktop smoke tests passed,
+  including the rendered spectrum/waterfall, source switching, settings,
+  recording controls, cancellation, application startup and shutdown. The
+  screenshot and logs are retained in the Step 3 local evidence bundle.
 
 **G2: RELEASE GATE OPEN.** The software checks below passed. The production
 release gate remains open until the physical-radio smoke test required by the

@@ -31,6 +31,7 @@ public final class IqBufferPoolTest {
         ownershipAndAdapter();
         scopedAccess();
         sharedBlockOwnership();
+        sharedBlockConcurrentChildren();
         nonblockingBlockRetention();
         sizeClassesAndBudget();
         invalidOperations();
@@ -116,6 +117,43 @@ public final class IqBufferPoolTest {
         assertDrained(pool);
     }
 
+    private static void sharedBlockConcurrentChildren() throws Exception {
+        IqBufferPool pool = new IqBufferPool(8);
+        IqBufferLease lease = acquire(pool, 1);
+        lease.put(0, 17, -17);
+        lease.publish(0, 1);
+        LeasedSampleBlock root = LeasedSampleBlock.from(lease, 9, 0, 1);
+        lease.close();
+        ExecutorService executor = Executors.newFixedThreadPool(4);
+        CountDownLatch go = new CountDownLatch(1);
+        List<Future<?>> tasks = new ArrayList<>();
+        try {
+            for (int n = 0; n < 4; n++) {
+                LeasedSampleBlock anchor = root.retain();
+                tasks.add(executor.submit(() -> {
+                    try (anchor) {
+                        require(go.await(10, TimeUnit.SECONDS), "Child-retain race did not start");
+                        for (int j = 0; j < 5000; j++) {
+                            try (LeasedSampleBlock child = anchor.retain()) {
+                                child.withView(view -> require(view.i(0) == 17 && view.q(0) == -17
+                                        && view.sampleIndex() == 9, "Child claim lost its data"));
+                            }
+                        }
+                    } catch (InterruptedException e) { throw new AssertionError(e); }
+                }));
+            }
+            root.close();
+            pool.close();
+            go.countDown();
+            for (Future<?> task : tasks) task.get(30, TimeUnit.SECONDS);
+        } finally {
+            go.countDown();
+            executor.shutdownNow();
+            require(executor.awaitTermination(10, TimeUnit.SECONDS), "Child-retain workers did not stop");
+        }
+        assertDrained(pool);
+    }
+
     private static void sharedBlockOwnership() throws Exception {
         IqBufferPool pool = new IqBufferPool(16);
         IqBufferLease writer = acquire(pool, 2);
@@ -130,6 +168,10 @@ public final class IqBufferPoolTest {
         first.close();
         expect(IllegalStateException.class, first::retain);
         check(pool.tryAcquire(2).isEmpty());
+        try (LeasedSampleBlock grandchild = retained.retain()) {
+            grandchild.withView(view -> check(view.i(0) == 123 && view.sampleIndex() == 7));
+            check(pool.statistics().outstandingLeases() == 1);
+        }
         IqSampleView[] escaped = new IqSampleView[1];
         retained.withView(view -> {
             escaped[0] = view;

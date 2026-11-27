@@ -1,7 +1,6 @@
 package eu.dariolucia.jsatdecode.api.source;
 
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.function.Consumer;
 
@@ -10,7 +9,7 @@ import java.util.function.Consumer;
  * metadata. Synchronous consumers may borrow an open block; asynchronous
  * consumers must retain a separate block before enqueueing and close it after
  * the final read, including rejection and failure. Retention uses atomics and
- * does not acquire the pool monitor. The final close releases the pool lease.
+ * does not acquire the pool monitor; the final close releases the pool lease.
  * No method exposes the mutable backing array.
  */
 public final class LeasedSampleBlock implements AutoCloseable {
@@ -90,10 +89,10 @@ public final class LeasedSampleBlock implements AutoCloseable {
         LeasedSampleBlock child = new LeasedSampleBlock(shared, sampleIndex, timestampNanos,
                 sampleRate, complexSamples);
         for (;;) {
-            int count = shared.references.get();
+            int count = Shared.REFERENCES.get(shared);
             if (count == 0 || closed != 0) throw new IllegalStateException("Block is closed");
             if (count == Integer.MAX_VALUE) throw new IllegalStateException("Too many block owners");
-            if (shared.references.compareAndSet(count, count + 1)) break;
+            if (Shared.REFERENCES.compareAndSet(shared, count, count + 1)) break;
         }
         // A concurrent close may have begun after the open check. A
         // successful increment linearizes this retain before that close; the
@@ -134,7 +133,7 @@ public final class LeasedSampleBlock implements AutoCloseable {
     @Override
     public void close() {
         if (!CLOSED.compareAndSet(this, 0, 1)) throw new IllegalStateException("Block is already closed");
-        if (shared.references.decrementAndGet() == 0) shared.lease.close();
+        if (Shared.REFERENCES.decrementAndGet(shared) == 0) shared.lease.close();
     }
 
     private void requireOpen() {
@@ -142,8 +141,10 @@ public final class LeasedSampleBlock implements AutoCloseable {
     }
 
     private static final class Shared {
+        private static final AtomicIntegerFieldUpdater<Shared> REFERENCES =
+                AtomicIntegerFieldUpdater.newUpdater(Shared.class, "references");
         final IqBufferLease lease;
-        final AtomicInteger references = new AtomicInteger(1);
+        private volatile int references = 1;
         Shared(IqBufferLease lease) { this.lease = lease; }
     }
 

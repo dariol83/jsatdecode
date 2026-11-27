@@ -93,6 +93,46 @@ or mission performance on recordings that were not used in that run.
 
 ## Sources, runtime and recording
 
+### Implementing a source, decoder or distributor with pooled IQ
+
+A source can opt in to `LeasedSampleSource` while retaining the legacy
+`SampleSource` contract. Acquire within a fixed budget, initialize the complete
+valid region through the writable lease, publish its offset and count, then
+construct a `LeasedSampleBlock` and deliver it synchronously. The source owns
+and closes both its block claim and its original lease on every path. A source
+must report pool exhaustion as a failure under its existing failure policy,
+not silently drop, wait indefinitely or allocate an unbounded fallback. Do not
+retain a scoped write accessor after the callback or modify published storage.
+Close the pool when acquisition ends; already retained consumer claims remain
+valid until those consumers close them. Check the source's `leasedStatistics()`
+on the management thread after its asynchronous consumers drain.
+
+Decoders still implement `Decoder.accept(ComplexSampleBlock)`. A decoder may
+also implement `LeasedDecoder.acceptLeased` to avoid the legacy adapter copy.
+Use `block.withView` for synchronous processing; the callback view and its
+accessors cannot escape or move to another thread. The caller owns the borrowed
+block: never close it. If processing continues after return, retain a separate
+claim before handoff and close it on completion, rejection, cancellation and
+failure. Keep mutable filter, timing, FEC and tap scratch local to the decoder
+instance and its serialized functional worker. See the normative
+[decoder specification](decoder-implementation-specification.md#iq-block-ownership-and-scratch).
+
+`FrameDistributor` implementations receive immutable `AnnotatedFrame` values,
+not pooled source IQ. Queue those values within the documented bounds; preserve
+the existing overflow, error and drain policy. Never capture a borrowed IQ view
+in an output task. A new component that actually distributes IQ asynchronously
+must define an explicit ownership handoff, retain its own block before enqueueing
+and close it on every queue and worker exit path. Frame payloads and metadata
+remain independently owned even after the source and its pool close.
+
+The [architecture](architecture.md#data-ownership-and-time) documents the
+individual pool budgets, size-class rounding, exceptional sizes and diagnostic
+scope. Pool payload caps are not total-heap limits. Include slow-writer,
+queue-full, source failure, EOF, cancellation, concurrent retain/close and
+shutdown tests when changing an ownership path; verify all retained claims drain.
+
+### Built-in sources and recording
+
 CF32 and WAV sources share bounded float32 little-endian file streaming,
 sample-range selection, repeat, optional realtime pacing and pull monitoring.
 WAV accepts float32 stereo RIFF, extensible float and common RF64 recordings.

@@ -21,6 +21,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.ServiceLoader;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /** Self-contained protocol, ownership, lifecycle and sample-partition regression. */
 public final class HinodeTest {
@@ -32,13 +37,31 @@ public final class HinodeTest {
         randomizer();
         fec();
         receiver();
-        check(
-                HinodeSyntheticSignal.run(2) > 0,
-                "End-to-end generated PM acquisition and corrected frames");
+        int expectedFrames = HinodeSyntheticSignal.run(2);
+        check(expectedFrames > 0, "End-to-end generated PM acquisition and corrected frames");
+        concurrentDecoders(expectedFrames);
         check(HinodeSyntheticSignal.run(6, .017, true) > 0, "Positive Doppler with valid frames");
         check(HinodeSyntheticSignal.run(6, -.017, true) > 0, "Negative Doppler with valid frames");
         System.out.println(
                 "Hinode synthetic tests passed (recorded/live qualification still required)");
+    }
+
+    private static void concurrentDecoders(int expectedFrames) {
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            Future<Integer> first = workers.submit(() -> { start.await(); return HinodeSyntheticSignal.run(2); });
+            Future<Integer> second = workers.submit(() -> { start.await(); return HinodeSyntheticSignal.run(2); });
+            start.countDown();
+            check(first.get(60, TimeUnit.SECONDS) == expectedFrames
+                            && second.get(60, TimeUnit.SECONDS) == expectedFrames,
+                    "Concurrent decoder instances changed their independent frame counts");
+        } catch (Exception e) {
+            throw new AssertionError("Concurrent Hinode decoders failed", e);
+        } finally {
+            start.countDown();
+            workers.shutdownNow();
+        }
     }
 
     private static void dcblocker() {

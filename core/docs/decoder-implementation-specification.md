@@ -94,6 +94,36 @@ processing a radio signal and is exempt from this DSP-stage requirement.
   Bound every buffer, history and queue. Avoid per-sample/symbol allocation.
   Prefer existing low-rate statistics/control points for status computation.
 
+### IQ block ownership and scratch
+
+- Every decoder MUST support `Decoder.accept(ComplexSampleBlock)`. That legacy
+  block owns its immutable data independently and may be retained; its `iq()`
+  method returns a defensive copy. A decoder MAY additionally implement
+  `LeasedDecoder` for direct delivery from a compatible source/runtime.
+- `acceptLeased` receives a borrowed, read-only `LeasedSampleBlock` owned by its
+  caller. Process it synchronously with `withView`; the supplied `IqSampleView`
+  and its accessors MUST NOT escape that callback or be used by another thread.
+  The decoder MUST NOT close the borrowed argument or mutate source/tap storage.
+  Its behavior, timestamps, metadata, valid length and numerical processing MUST
+  match `accept`, including partial and zero-length blocks.
+- Before enqueueing or using a block after `acceptLeased` returns, the decoder
+  MUST obtain its own claim with `retain()` and close that claim exactly once
+  after the final read, including enqueue rejection, cancellation, shutdown and
+  failure. An asynchronous worker opens its own view on its own thread. A source
+  or pool may close while such a claim is outstanding; the claim stays valid
+  until closed. Never retain a view as a substitute for retaining a block.
+- DSP state and scratch arrays MUST be bounded and confined to the decoder
+  instance/functional worker; separate concurrent decoders MUST NOT share
+  mutable filter histories, FEC scratch or stateful library instances. Preserve
+  histories across block partitions and arithmetic order when bit-exact output
+  is required. Allocate separate destination storage for transformed samples;
+  a published source block is not scratch space.
+- Verify both input paths with identical sample bits, order, timestamps, frame
+  payloads, metadata and monitoring. Exercise retained claims, exceptions,
+  cancellation, pool shutdown and concurrent decoder instances; no outstanding
+  claims may remain after all workers have drained. Keep frame and tap ownership
+  independent of the lifetime of the input block.
+
 ## 3. Mandatory decoder status
 
 The public Java vocabulary is

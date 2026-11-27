@@ -114,6 +114,60 @@ invalidate retained claims. Legacy sources, sinks and decoders continue to use
 the independently owned `ComplexSampleBlock` boundary. See the
 [API ownership guide](../../api/README.md#opt-in-iq-buffer-ownership).
 
+The pooled path has separate ownership for the writable source lease, the
+published block and each asynchronous consumer. A view is only a synchronous
+borrow; it is not an ownership claim that can be queued.
+
+```mermaid
+flowchart LR
+    A[Pool: acquire writable lease] --> B[Source: fill and publish]
+    B --> C[Published block: source owns claim]
+    C --> D[Decoder: borrow scoped view]
+    C --> E[Recorder: retain before enqueue]
+    E --> F[Writer: read then close claim]
+    C --> G[Source closes its claim and lease]
+    F --> H[Last claim closes: recycle or discard buffer]
+    G --> H
+    H -->|pool open| A
+    H -->|pool closed| I[Discard storage]
+```
+
+Rotation or Inspector decimation creates a separate output buffer when samples
+must change; published source storage and tap snapshots are never changed in
+place. A zero-frequency-offset runtime handoff and bypassed decimation borrow
+the original block. Source-owned FMComms2 recording observes the original IQ
+before runtime translation. Legacy consumers are adapted with a defensive copy.
+Frame distributors do not own IQ blocks: they receive immutable `AnnotatedFrame`
+values with detached payloads and annotations, and drain their own bounded
+queues independently of IQ lease lifetime.
+
+Pools are lazy and bounded by float-array payload capacity, including idle
+arrays; this is not a cap on Java object headers, evicted arrays waiting for GC,
+DSP state, recording queues or total heap. Capacities are powers of two complex
+samples. The largest legal class is 2^29 samples; a larger request is invalid,
+and a legal class that cannot fit the budget fails immediately. Idle classes
+may be evicted largest first. There is no unbounded large-block fallback.
+For a configured maximum block class `C` complex samples, file-source pools
+reserve at most `128 MiB + 3 * C * 8` bytes; FMComms2 uses `128 MiB +
+2 * recording_queue_bytes + 4 * C * 8` (the queue term is zero when the
+source recorder is disabled). Inspector's transformed-output pool is capped at
+152 MiB and runtime rotation at 256 MiB. These limits are independent, not a
+single shared heap budget.
+
+Source `leasedStatistics()` exposes delivered blocks and an `IqBufferPool`
+snapshot on the management caller, not on the sample callback. It includes
+current and peak active/idle/reserved payload bytes, allocation/reuse,
+exhaustion, underlying outstanding lease and invalid lease-release counts.
+Several retained block claims share one underlying lease, so this is not a count
+of block owners. The source does not automatically merge these diagnostics into
+the normal monitoring snapshot. The rotator and Inspector pools are separate;
+source statistics do not account for them. Pool closure discards idle arrays but
+does not invalidate retained claims. After acquisition has stopped and all
+asynchronous consumers have drained, verify outstanding leases and active bytes
+are zero. `invalidReleases` records duplicate pool-lease closes; a duplicate
+`LeasedSampleBlock.close()` also fails but is not that counter. Exhaustion is
+reported as a source/transform failure rather than silently dropping samples.
+
 `AnnotatedFrame` copies its payload on construction and access, and compares
 payloads by content. Maps/lists are recursively snapshotted for configuration,
 annotations, observations and events. Supported leaves are strings, primitive
