@@ -115,7 +115,8 @@ block: never close it. If processing continues after return, retain a separate
 claim before handoff and close it on completion, rejection, cancellation and
 failure. Keep mutable filter, timing, FEC and tap scratch local to the decoder
 instance and its serialized functional worker. See the normative
-[decoder specification](decoder-implementation-specification.md#iq-block-ownership-and-scratch).
+[decoder specification](decoder-implementation-specification.md#iq-block-ownership-and-scratch)
+and the [migration guide for existing decoders](decoder-iq-migration-guide.md).
 
 `FrameDistributor` implementations receive immutable `AnnotatedFrame` values,
 not pooled source IQ. Queue those values within the documented bounds; preserve
